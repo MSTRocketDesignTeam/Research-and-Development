@@ -59,6 +59,8 @@ pa = fPAtAlt(alt);
 DFstress = 2;
 DFtemp = 1.15;
 DFcoolantpress = 1.2;
+% g/cc to kg/m^3
+densalloy = 2.665 .* 10.^-3;
 % deg C to K
 T_AlSi10Mg_melt = 570 + 273.15;
 % USD/lbm to USD/kgm
@@ -257,6 +259,7 @@ alpha = zeros(ndsvar);
 L_chamber_circular_narrow = zeros(ndsvar);
 Rc = zeros(ndsvar);
 L_chamber_linear = zeros(ndsvar);
+TWR = zeros(ndsvar);
 
 %% Begin calcs
 % Workflow - hybrid iterative vectorized method
@@ -354,7 +357,7 @@ for i_pc = 1:length(pc_range)
             % hydraulic radius of channel is 4 * area / perimeter
             dH_channels = 4 .* A_channel_range ./ (3 .* d_channel_range + 2 .* d_channel_range ./ sqrt(2));
             % Remember it's just fuel in channels
-            mdot_channel = mdot_range .* (1 / (1 + OF)) ./ num_channels_range;
+            mdot_channel = mdot_range .* (1 ./ (1 + OF)) ./ num_channels_range;
             % rackett equation used to calc coolant density
             rho_coolant = fRackett(rho_crit_eth, Zc_eth, T_coolant_range, Tcrit_eth);
             k_coolant = fk_eth(rho_coolant, T_coolant_range);
@@ -577,6 +580,9 @@ for i_pc = 1:length(pc_range)
             r_engine(i_pc, i_OF, i_eps, :, :, :, :, :, :, :) = cat(ndims(r_nozzle_parabolic), r_nozzle_parabolic, r_nozzle_circular, r_chamber_circular_widen, r_chamber_circular_narrow, r_chamber_linear);
             z_engine(i_pc, i_OF, i_eps, :, :, :, :, :, :, :) = cat(ndims(z_nozzle_parabolic), z_nozzle_parabolic, z_nozzle_circular, z_chamber_circular_widen, z_chamber_circular_narrow, z_chamber_linear);
             vol_engine(i_pc, i_OF, i_eps, :, :, :, :, :, :) = pi .* sum(squeeze(r_engine(i_pc, i_OF, i_eps, :, :, :, :, :, :, :)).^2, ndims(squeeze(r_engine(i_pc, i_OF, i_eps, :, :, :, :, :, :, :))));
+            % Very crude estimate, basically assumes solid engine. no
+            % cavities inside aka no chamber
+            TWR(i_pc, i_OF, i_eps, :, :, :, :, :, :) = squeeze(thrust(i_pc, i_OF, i_eps, :, :, :, :, :, :)) ./ (g0 .* densalloy .* squeeze(vol_engine(i_pc, i_OF, i_eps, :, :, :, :, :, :)));
             if ~isreal(r_engine)
                 disp('non real physical engine design');
             end
@@ -647,7 +653,7 @@ vol_engine = vol_engine .* 10.^9;
 contourvalnames = ["vol_engine", "L_nozzle_parabolic", "Re", "thetaN", "xN", "R1", "R1p", "alpha", "L_chamber_circular_narrow", "Rc", "L_chamber_linear", "dt"];
 
 % Export to mat file for use in app
-save(filename_datastorage, "T_AlSi10Mg_melt", "T_w_max", "yieldstress_alloy", "yieldstress_max", "eta_cstar_min", "list_var_names", "ranges", "pc_range", "OF_range", "expansion_ratio_range", "mdot_range", "d_channel_range", "num_channels_range", "T_coolant_range", "wallt_range", "k_walls", "thermstress", "T_coolant_f", "P_coolant_min", "Twg", "q", "Isp", "prop_cost", "dt", "cstar", "cstar_theo", "thrust", "de", "eta_cstar", "Vc", "CR", "flow_sonic", "r_engine", "z_engine", "vol_engine", "L_nozzle_parabolic", "Re", "thetaN", "xN", "R1", "R1p", "alpha", "L_chamber_circular_narrow", "Rc", "L_chamber_linear", "contourvalnames");
+save(filename_datastorage, "T_AlSi10Mg_melt", "T_w_max", "yieldstress_alloy", "yieldstress_max", "eta_cstar_min", "list_var_names", "ranges", "pc_range", "OF_range", "expansion_ratio_range", "mdot_range", "d_channel_range", "num_channels_range", "T_coolant_range", "wallt_range", "k_walls", "thermstress", "T_coolant_f", "P_coolant_min", "Twg", "q", "Isp", "prop_cost", "dt", "cstar", "cstar_theo", "thrust", "de", "eta_cstar", "Vc", "CR", "flow_sonic", "r_engine", "z_engine", "vol_engine", "L_nozzle_parabolic", "Re", "thetaN", "xN", "R1", "R1p", "alpha", "L_chamber_circular_narrow", "Rc", "L_chamber_linear", "contourvalnames", "TWR");
 
 
 %% More complex functions
