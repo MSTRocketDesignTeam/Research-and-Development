@@ -73,6 +73,8 @@ E_alloy = 85E9;
 alpha_alloy = 27E-6;
 % in to m
 l_channel = 5 .* .0254;
+numelsnoz = 10;
+numsectionsnoz = 5;
 
 %% Independent, Variable Parameters
 % pc
@@ -242,6 +244,19 @@ eta_cstar = zeros(ndsvar);
 Tt = zeros(ndsvar);
 Vc = zeros(ndsvar);
 flow_sonic = zeros(ndsvar);
+vol_engine = zeros(ndsvar);
+r_engine = zeros([ndsvar, numelsnoz .* numsectionsnoz]);
+z_engine = zeros([ndsvar, numelsnoz .* numsectionsnoz]);
+L_nozzle_parabolic = zeros(ndsvar);
+Re = zeros(ndsvar);
+thetaN = zeros(ndsvar);
+xN = zeros(ndsvar);
+R1 = zeros(ndsvar);
+R1p = zeros(ndsvar);
+alpha = zeros(ndsvar);
+L_chamber_circular_narrow = zeros(ndsvar);
+Rc = zeros(ndsvar);
+L_chamber_linear = zeros(ndsvar);
 
 %% Begin calcs
 % Workflow - hybrid iterative vectorized method
@@ -306,7 +321,7 @@ for i_pc = 1:length(pc_range)
             % Gets throat temp needed for several calculations later
             % deg R to K
             Tts = double(cea_out.get_Temperatures(Pc = pc * 0.000145038, MR = OF, eps = expansion_ratio)) .* 5 ./ 9;
-            Tt(i_pc, i_OF, i_eps, :, :, :, :, :, :, :) = Tts(2);
+            Tt(i_pc, i_OF, i_eps, :, :, :, :, :, :) = Tts(2);
             % Fix units from CEA output lbm/ft^3 -> kg/m^3
             rho_ts = double(cea_out.get_Densities(Pc = pc * 0.000145038, MR = OF, eps = expansion_ratio)) .* 16.018463;
             rho_t = rho_ts(2);
@@ -318,18 +333,18 @@ for i_pc = 1:length(pc_range)
             k_flow = throat_trans(3) .* .4184;
             Pr_flow = throat_trans(4);
             % ft/s -> m/s
-            cstar_theo(i_pc, i_OF, i_eps, :, :, :, :, :, :, :) = cea_out.get_Cstar(Pc = pc * 0.000145038, MR = OF) .* .3048;
+            cstar_theo(i_pc, i_OF, i_eps, :, :, :, :, :, :) = cea_out.get_Cstar(Pc = pc * 0.000145038, MR = OF) .* .3048;
 
             % Get some KPPs and other sizing info for trade alternatives
-            flow_sonic(i_pc, i_OF, i_eps, :, :, :, :, :, :, :) = sqrt(gamma_e * R_universal / mlr_wgt_flow_t * squeeze(Tt(i_pc, i_OF, i_eps, :, :, :, :, :, :, :)));
-            At(i_pc, i_OF, i_eps, :, :, :, :, :, :, :) = mdot_range ./ squeeze(flow_sonic(i_pc, i_OF, i_eps, :, :, :, :, :, :, :)) ./ rho_t;
-            Vc(i_pc, i_OF, i_eps, :, :, :, :, :, :, :) = squeeze(At(i_pc, i_OF, i_eps, :, :, :, :, :, :, :)) .* Lstar;
-            Ae(i_pc, i_OF, i_eps, :, :, :, :, :, :, :) = squeeze(At(i_pc, i_OF, i_eps, :, :, :, :, :, :, :)) .* expansion_ratio;
-            thrust(i_pc, i_OF, i_eps, :, :, :, :, :, :, :) = Cf .* squeeze(At(i_pc, i_OF, i_eps, :, :, :, :, :, :, :)) .* pc;
-            prop_cost(i_pc, i_OF, i_eps, :, :, :, :, :, :, :) = burntime .* mdot_range .* (cost_nit .* (1 ./ (1 + OF) .* OF) + cost_eth .* (1 ./ (1 + OF)));
-            Isp(i_pc, i_OF, i_eps, :, :, :, :, :, :, :) = squeeze(thrust(i_pc, i_OF, i_eps, :, :, :, :, :, :, :)) ./ mdot_range ./ g0;
-            cstar(i_pc, i_OF, i_eps, :, :, :, :, :, :, :) = squeeze(Isp(i_pc, i_OF, i_eps, :, :, :, :, :, :, :)) .* g0 ./ Cf;
-            eta_cstar(i_pc, i_OF, i_eps, :, :, :, :, :, :, :) = squeeze(cstar(i_pc, i_OF, i_eps, :, :, :, :, :, :, :)) ./ squeeze(cstar_theo(i_pc, i_OF, i_eps, :, :, :, :, :, :, :));
+            flow_sonic(i_pc, i_OF, i_eps, :, :, :, :, :, :) = sqrt(gamma_e * R_universal / mlr_wgt_flow_t * squeeze(Tt(i_pc, i_OF, i_eps, :, :, :, :, :, :)));
+            At(i_pc, i_OF, i_eps, :, :, :, :, :, :) = mdot_range ./ squeeze(flow_sonic(i_pc, i_OF, i_eps, :, :, :, :, :, :)) ./ rho_t;
+            Vc(i_pc, i_OF, i_eps, :, :, :, :, :, :) = squeeze(At(i_pc, i_OF, i_eps, :, :, :, :, :, :)) .* Lstar;
+            Ae(i_pc, i_OF, i_eps, :, :, :, :, :, :) = squeeze(At(i_pc, i_OF, i_eps, :, :, :, :, :, :)) .* expansion_ratio;
+            thrust(i_pc, i_OF, i_eps, :, :, :, :, :, :) = Cf .* squeeze(At(i_pc, i_OF, i_eps, :, :, :, :, :, :)) .* pc;
+            prop_cost(i_pc, i_OF, i_eps, :, :, :, :, :, :) = burntime .* mdot_range .* (cost_nit .* (1 ./ (1 + OF) .* OF) + cost_eth .* (1 ./ (1 + OF)));
+            Isp(i_pc, i_OF, i_eps, :, :, :, :, :, :) = squeeze(thrust(i_pc, i_OF, i_eps, :, :, :, :, :, :)) ./ mdot_range ./ g0;
+            cstar(i_pc, i_OF, i_eps, :, :, :, :, :, :) = squeeze(Isp(i_pc, i_OF, i_eps, :, :, :, :, :, :)) .* g0 ./ Cf;
+            eta_cstar(i_pc, i_OF, i_eps, :, :, :, :, :, :) = squeeze(cstar(i_pc, i_OF, i_eps, :, :, :, :, :, :)) ./ squeeze(cstar_theo(i_pc, i_OF, i_eps, :, :, :, :, :, :));
 
             % -------------------------------------------------------------
             % Needed to find film coeffs
@@ -352,8 +367,8 @@ for i_pc = 1:length(pc_range)
             % Check throat Re is high enough (> 10k) to use Sutton hl
             % equation
             % hydraulic diam is 4 * area / perimeter
-            dt = sqrt(squeeze(At(i_pc, i_OF, i_eps, :, :, :, :, :, :, :)) .* 4 ./ pi);
-            Ret = rho_t .* squeeze(flow_vel(i_pc, i_OF, i_eps, :, :, :, :, :, :, :)) .* dt ./ mu_flow;
+            dt = sqrt(squeeze(At(i_pc, i_OF, i_eps, :, :, :, :, :, :)) .* 4 ./ pi);
+            Ret = rho_t .* squeeze(flow_vel(i_pc, i_OF, i_eps, :, :, :, :, :, :)) .* dt ./ mu_flow;
             Re_coolant = dH_channels .* fluid_vel .* rho_coolant ./ mu_coolant;
             Pr_coolant = cp_coolant_avg .* mu_coolant ./ k_coolant;
             % Exponent on Pr_coolant is .4 bc fluid is being heated - https://www.sciencedirect.com/topics/engineering/dittus-boelter-correlation?
@@ -365,7 +380,7 @@ for i_pc = 1:length(pc_range)
             hl(hl_laminar_mask) = .023 .* cp_coolant_avg .* mdot_channel(hl_laminar_mask) ./ A_channel_range(hl_laminar_mask) .* Re_coolant(hl_laminar_mask).^-.2 .* (mu_coolant(hl_laminar_mask) .* cp_coolant_avg ./ k_coolant(hl_laminar_mask)).^(-2./3);
             % Dittus Boelter correlation, used with caution from Re = 2300 to Re = 10k, above 10k it's pretty good
             hl(hl_turbulent_mask) = NU_coolant(hl_turbulent_mask) .* k_coolant(hl_turbulent_mask) ./ dH_channels(hl_turbulent_mask);
-            hg = .023 .* (rho_t .* squeeze(flow_vel(i_pc, i_OF, i_eps, :, :, :, :, :, :, :))).^.8 ./ dt.^.2 .* Pr_flow.^.4 .* k_flow ./ mu_flow.^.8;
+            hg = .023 .* (rho_t .* squeeze(flow_vel(i_pc, i_OF, i_eps, :, :, :, :, :, :))).^.8 ./ dt.^.2 .* Pr_flow.^.4 .* k_flow ./ mu_flow.^.8;
          
             % % For debugging
             % if i_pc == 3 && i_OF == 3 && i_eps == 3
@@ -391,22 +406,186 @@ for i_pc = 1:length(pc_range)
             % f_coolant = 0.079 ./ Re_coolant.^0.25;
 
             % Get radial heat transfer through wall and hot wall temps
-            q(i_pc, i_OF, i_eps, :, :, :, :, :, :, :) = (squeeze(Tt(i_pc, i_OF, i_eps, :, :, :, :, :, :, :)) - T_coolant_range) ./ (1 ./ hg + wallt_range ./ k_walls + 1 ./ hl);
-            Twg(i_pc, i_OF, i_eps, :, :, :, :, :, :, :) = squeeze(Tt(i_pc, i_OF, i_eps, :, :, :, :, :, :, :)) - squeeze(q(i_pc, i_OF, i_eps, :, :, :, :, :, :, :)) ./ hg;
-            Twl(i_pc, i_OF, i_eps, :, :, :, :, :, :, :) = T_coolant_range + squeeze(q(i_pc, i_OF, i_eps, :, :, :, :, :, :, :)) ./ hl;
+            q(i_pc, i_OF, i_eps, :, :, :, :, :, :) = (squeeze(Tt(i_pc, i_OF, i_eps, :, :, :, :, :, :)) - T_coolant_range) ./ (1 ./ hg + wallt_range ./ k_walls + 1 ./ hl);
+            Twg(i_pc, i_OF, i_eps, :, :, :, :, :, :) = squeeze(Tt(i_pc, i_OF, i_eps, :, :, :, :, :, :)) - squeeze(q(i_pc, i_OF, i_eps, :, :, :, :, :, :)) ./ hg;
+            Twl(i_pc, i_OF, i_eps, :, :, :, :, :, :) = T_coolant_range + squeeze(q(i_pc, i_OF, i_eps, :, :, :, :, :, :)) ./ hl;
 
             % delta T of coolant just at throat cross section
-            deltaT_coolantslice = squeeze(q(i_pc, i_OF, i_eps, :, :, :, :, :, :, :)) .* d_channel_range ./ mdot_channel ./ cp_coolant_avg;
+            deltaT_coolantslice = squeeze(q(i_pc, i_OF, i_eps, :, :, :, :, :, :)) .* d_channel_range ./ mdot_channel ./ cp_coolant_avg;
             % assume at worst, it's that much at EVERY cross section
             % per-channel delta T
             deltaT_coolant = deltaT_coolantslice .* l_channel;
-            T_coolant_f(i_pc, i_OF, i_eps, :, :, :, :, :, :, :) = T_coolant_range + deltaT_coolant;
+            T_coolant_f(i_pc, i_OF, i_eps, :, :, :, :, :, :) = T_coolant_range + deltaT_coolant;
+
+            %% Calculate nozzle contour geometry
+
+            % Doing Rao approximation bell contour nozzle
+            % GT slides:
+            % From: https://www.seitzman.gatech.edu/classes/ae6450/nozzle_geometries.pdf
+            
+            % Assemble bottom up, starting with nozzle exit, but not
+            % necessarily calculated in that order:
+
+            % Sections in order by calculation:
+            % ----------------
+            % Nozzle circular
+            % Chamber circular widen
+            % Nozzle parabolic
+            % Chamber circular narrow
+            % Chamber linear
+
+            %% Nozzle circular
+            % Give the contour arrays a few datapoints
+            % Keep using numelsnoz
+            % Makes an arc around 0,0 and shifts later for simplicity
+            Rt = dt ./ 2;
+            R1(i_pc, i_OF, i_eps, :, :, :, :, :, :) = .382 .* Rt;
+            % GT slides say 15 degrees, but using 20 because for
+            % 100% fpct and ~5 expansion ratio, 20's a good thetaN and it's
+            % close enough to 15 degrees
+            % Convert to radians
+            thetaN(i_pc, i_OF, i_eps, :, :, :, :, :, :) = 20 ./ 180 .* pi;
+            xN(i_pc, i_OF, i_eps, :, :, :, :, :, :) = squeeze(R1(i_pc, i_OF, i_eps, :, :, :, :, :, :)) .* sin(squeeze(thetaN(i_pc, i_OF, i_eps, :, :, :, :, :, :)));
+            L_nozzle_circular = squeeze(xN(i_pc, i_OF, i_eps, :, :, :, :, :, :));
+            
+            % Basically makes a linspace from 0 to L_nozzle_circular's
+            % value at every index in L_nozzle_circular
+            z_nozzle_circular = fRshpSmmtnArrys(linspace(0, 1, numelsnoz), ndims(L_nozzle_circular));
+            z_nozzle_circular = z_nozzle_circular .* L_nozzle_circular;
+
+            rc = Rt + squeeze(R1(i_pc, i_OF, i_eps, :, :, :, :, :, :));
+
+            r_nozzle_circular = rc - (squeeze(R1(i_pc, i_OF, i_eps, :, :, :, :, :, :)).^2 - z_nozzle_circular.^2).^.5;
+
+            % Flip upside down (flip last dimension)
+            r_nozzle_circular = flip(r_nozzle_circular, ndims(r_nozzle_circular));
+            % Shift in z
+            fpct = 1;
+            L_nozzle = fpct .* Rt ./ tan(squeeze(thetaN(i_pc, i_OF, i_eps, :, :, :, :, :, :))) .* (sqrt(expansion_ratio) - 1 + 1.5 .* (1 ./ cos(squeeze(thetaN(i_pc, i_OF, i_eps, :, :, :, :, :, :))) - 1));
+            z_nozzle_circular = z_nozzle_circular + L_nozzle - L_nozzle_circular;
+
+            %% Chamber circular widen
+            R1p(i_pc, i_OF, i_eps, :, :, :, :, :, :) = Rt .* 1.5;
+            Rc(i_pc, i_OF, i_eps, :, :, :, :, :, :) = CR.^.5 .* Rt;
+            % Arbitrary chamber converging section geometry choice. Made it
+            % a circle for simplicity
+            % Try deriving alpha from scale of how far in between throat
+            % radius and chamber radius I want arc to stop
+            % Using a while loop to avoid impossible geometric constraints
+            etaRc = .2;
+            while true
+                alpha(i_pc, i_OF, i_eps, :, :, :, :, :, :) = acos(1 - (etaRc .* (squeeze(Rc(i_pc, i_OF, i_eps, :, :, :, :, :, :)) - Rt)) ./ squeeze(R1p(i_pc, i_OF, i_eps, :, :, :, :, :, :)));
+    
+                L_chamber_circular_widen = squeeze(R1p(i_pc, i_OF, i_eps, :, :, :, :, :, :)) .* sin(squeeze(alpha(i_pc, i_OF, i_eps, :, :, :, :, :, :)));
+    
+                z_chamber_circular_widen = fRshpSmmtnArrys(linspace(0, 1, numelsnoz), ndims(L_chamber_circular_widen));
+                z_chamber_circular_widen = z_chamber_circular_widen .* L_chamber_circular_widen;
+    
+                rc = Rt + squeeze(R1p(i_pc, i_OF, i_eps, :, :, :, :, :, :));
+    
+                % No need to flip upside down
+                r_chamber_circular_widen = rc - (squeeze(R1p(i_pc, i_OF, i_eps, :, :, :, :, :, :)).^2 - z_chamber_circular_widen.^2).^.5;
+    
+                % Shift in z
+                z_chamber_circular_widen = z_chamber_circular_widen + z_nozzle_circular(:, :, :, :, :, :, end);
+    
+                %% Nozzle parabolic
+                % Start with coord system the same way as done with the nozzle
+                % circular section, then shift later
+                % Based on the low expansion ratios we'll be using and high
+                % fpct for low thetae (in context of Rao):
+                % Use thetaN, the nozzle-circular end-part's angle.
+                % thetaN stays the same
+                Re(i_pc, i_OF, i_eps, :, :, :, :, :, :) = expansion_ratio.^.5 .* Rt; 
+                L_nozzle_parabolic(i_pc, i_OF, i_eps, :, :, :, :, :, :) = L_nozzle - L_nozzle_circular;
+    
+                z_nozzle_parabolic = fRshpSmmtnArrys(linspace(0, 1, numelsnoz), ndims(squeeze(L_nozzle_parabolic(i_pc, i_OF, i_eps, :, :, :, :, :, :))));
+                z_nozzle_parabolic = z_nozzle_parabolic .* squeeze(L_nozzle_parabolic(i_pc, i_OF, i_eps, :, :, :, :, :, :));
+    
+                % Nonlinear three variable system - solved by hand
+                k = squeeze(Re(i_pc, i_OF, i_eps, :, :, :, :, :, :)).^2 ./ (2 .* tan(squeeze(thetaN(i_pc, i_OF, i_eps, :, :, :, :, :, :))) .* squeeze(L_nozzle_parabolic(i_pc, i_OF, i_eps, :, :, :, :, :, :)) + 2 .* squeeze(Re(i_pc, i_OF, i_eps, :, :, :, :, :, :)));
+                b = 2 .* tan(squeeze(thetaN(i_pc, i_OF, i_eps, :, :, :, :, :, :))) .* k;
+                h = -b ./ (4 .* tan(squeeze(thetaN(i_pc, i_OF, i_eps, :, :, :, :, :, :))).^2);            
+    
+                r_nozzle_parabolic = (b .* (z_nozzle_parabolic - h)).^.5 + k;
+                
+                % r not controlled for thetaN at z=0 constraint, so have to
+                % account for that with a shift
+                rShift = r_nozzle_circular(:, :, :, :, :, :, 1) - r_nozzle_parabolic(:, :, :, :, :, :, 1);
+                r_nozzle_parabolic = r_nozzle_parabolic + rShift;
+            
+                % Flip z
+                z_nozzle_parabolic = flip(z_nozzle_parabolic, ndims(z_nozzle_parabolic));
+    
+                %% Chamber circular narrow
+                % Yes I realize it isn't circular, it used to be and I
+                % never changed the name
+                % Angle stays same as where it meets chamber circular widen
+                % section.
+                % alpha stays the same
+    
+                r1 = squeeze(Rc(i_pc, i_OF, i_eps, :, :, :, :, :, :)) - r_chamber_circular_widen(:, :, :, :, :, :, end);
+    
+                % Parabolic curve, solved by hand for a and b
+                b = tan(squeeze(alpha(i_pc, i_OF, i_eps, :, :, :, :, :, :)));
+                a = -b.^2 ./ (4 .* r1);
+    
+                z1 = (-b + (b.^2 + 4 .* a .* r1).^.5) ./ (2 .* a);
+                if isreal(z1)
+                   break
+                else
+                    etaRc = etaRc + .1 .* (1 - etaRc);
+                end
+            end
+            L_chamber_circular_narrow(i_pc, i_OF, i_eps, :, :, :, :, :, :) = z1;
+
+            z_chamber_circular_narrow = fRshpSmmtnArrys(linspace(0, 1, numelsnoz), ndims(squeeze(L_chamber_circular_narrow(i_pc, i_OF, i_eps, :, :, :, :, :, :))));
+            z_chamber_circular_narrow = z_chamber_circular_narrow .* squeeze(L_chamber_circular_narrow(i_pc, i_OF, i_eps, :, :, :, :, :, :));
+
+            r_chamber_circular_narrow = a .* z_chamber_circular_narrow.^2 + b .* z_chamber_circular_narrow;
+
+            % r and z should already be in the proper orientation, so just
+            % shift r out and z out
+            z_chamber_circular_narrow = z_chamber_circular_narrow + z_chamber_circular_widen(:, :, :, :, :, :, end);
+            r_chamber_circular_narrow = r_chamber_circular_narrow + r_chamber_circular_widen(:, :, :, :, :, :, end);
+
+            %% Chamber linear
+
+            % Get volume of chamber circular narrow and chamber circular
+            % widen sections to calculate what remains of Vc, derive
+            % chamber linear dimensions from that remainder of Vc
+            % Account for widen section volume first
+            dz_chamber_circular_widen = diff(z_chamber_circular_widen, [], ndims(z_chamber_circular_widen));
+            Vcl = squeeze(Vc(i_pc, i_OF, i_eps, :, :, :, :, :, :)) - pi .* sum(r_chamber_circular_widen(:, :, :, :, :, :, 1:end-1).^2 .* dz_chamber_circular_widen, ndims(r_chamber_circular_widen));
+            % Then for narrow section volume
+            dz_chamber_circular_narrow = diff(z_chamber_circular_narrow, [], ndims(z_chamber_circular_narrow));
+            Vcl = Vcl - pi .* sum(r_chamber_circular_narrow(:, :, :, :, :, :, 1:end-1).^2 .* dz_chamber_circular_narrow, ndims(r_chamber_circular_narrow));
+
+            L_chamber_linear(i_pc, i_OF, i_eps, :, :, :, :, :, :) = Vcl ./ (2 .* pi .* squeeze(Rc(i_pc, i_OF, i_eps, :, :, :, :, :, :)).^2);
+
+            % r_chamber_linear = Rc .* ones(1, 50);
+            r_chamber_linear = fRshpSmmtnArrys(ones(1, numelsnoz), ndims(squeeze(L_chamber_circular_narrow(i_pc, i_OF, i_eps, :, :, :, :, :, :))));
+            r_chamber_linear = r_chamber_linear .* squeeze(Rc(i_pc, i_OF, i_eps, :, :, :, :, :, :));
+
+            z_chamber_linear = fRshpSmmtnArrys(linspace(0, 1, numelsnoz), ndims(squeeze(L_chamber_linear(i_pc, i_OF, i_eps, :, :, :, :, :, :))));
+            z_chamber_linear = z_chamber_linear .* squeeze(L_chamber_linear(i_pc, i_OF, i_eps, :, :, :, :, :, :));
+
+            % Shift z
+            z_chamber_linear = z_chamber_linear + max(z_chamber_circular_narrow, [], 7);
+
+            %% Compile all sections to export to app
+            r_engine(i_pc, i_OF, i_eps, :, :, :, :, :, :, :) = cat(ndims(r_nozzle_parabolic), r_nozzle_parabolic, r_nozzle_circular, r_chamber_circular_widen, r_chamber_circular_narrow, r_chamber_linear);
+            z_engine(i_pc, i_OF, i_eps, :, :, :, :, :, :, :) = cat(ndims(z_nozzle_parabolic), z_nozzle_parabolic, z_nozzle_circular, z_chamber_circular_widen, z_chamber_circular_narrow, z_chamber_linear);
+            vol_engine(i_pc, i_OF, i_eps, :, :, :, :, :, :) = pi .* sum(squeeze(r_engine(i_pc, i_OF, i_eps, :, :, :, :, :, :, :)).^2, ndims(squeeze(r_engine(i_pc, i_OF, i_eps, :, :, :, :, :, :, :))));
+            if ~isreal(r_engine)
+                disp('non real physical engine design');
+            end
         end
     end
 end
 % min coolant press to prevent it boiling in the channels (w/in DF)
 P_coolant_min = fpvapeth(T_coolant_f) ./ DFcoolantpress;
-thermstress(:, :, :, :, :, :, :, :, :, :) = E_alloy .* alpha_alloy .* (Twg - Twl);
+thermstress(:, :, :, :, :, :, :, :, :) = E_alloy .* alpha_alloy .* (Twg - Twl);
 
 % Get runtime diagnostics
 runtime = toc(runtime)
@@ -458,9 +637,17 @@ P_coolant_min = P_coolant_min .* .000145038;
 eta_cstar = eta_cstar .* 100;
 % Pa to MPa
 thermstress = thermstress ./ 10.^6;
+% Engine volume and contour info
+% m to mm
+r_engine = r_engine .* 10.^3;
+z_engine = z_engine .* 10.^3;
+% m^3 to mm^3
+vol_engine = vol_engine .* 10.^9;
+
+contourvalnames = ["vol_engine", "L_nozzle_parabolic", "Re", "thetaN", "xN", "R1", "R1p", "alpha", "L_chamber_circular_narrow", "Rc", "L_chamber_linear", "dt"];
 
 % Export to mat file for use in app
-save(filename_datastorage, "T_AlSi10Mg_melt", "T_w_max", "yieldstress_alloy", "yieldstress_max", "eta_cstar_min", "list_var_names", "ranges", "pc_range", "OF_range", "expansion_ratio_range", "mdot_range", "d_channel_range", "num_channels_range", "T_coolant_range", "wallt_range", "k_walls", "thermstress", "T_coolant_f", "P_coolant_min", "Twg", "q", "Isp", "prop_cost", "dt", "cstar", "cstar_theo", "thrust", "de", "eta_cstar", "Vc", "CR", "flow_sonic");
+save(filename_datastorage, "T_AlSi10Mg_melt", "T_w_max", "yieldstress_alloy", "yieldstress_max", "eta_cstar_min", "list_var_names", "ranges", "pc_range", "OF_range", "expansion_ratio_range", "mdot_range", "d_channel_range", "num_channels_range", "T_coolant_range", "wallt_range", "k_walls", "thermstress", "T_coolant_f", "P_coolant_min", "Twg", "q", "Isp", "prop_cost", "dt", "cstar", "cstar_theo", "thrust", "de", "eta_cstar", "Vc", "CR", "flow_sonic", "r_engine", "z_engine", "vol_engine", "L_nozzle_parabolic", "Re", "thetaN", "xN", "R1", "R1p", "alpha", "L_chamber_circular_narrow", "Rc", "L_chamber_linear", "contourvalnames");
 
 
 %% More complex functions
@@ -504,8 +691,3 @@ function pvapeth = fpvapeth(T)
     % bar to Pa
     pvapeth(idxsvalid) = 10.^(A(idxsvalid) - B(idxsvalid) ./ (T(idxsvalid) + C(idxsvalid))) .* 10.^5;
 end
-
-
-%% Next
-%   Claude, AI agent, gave some code to calc Re, Pr, Biot #, Nusselt #, and
-%       friction coeff if wanted, but will leave commented out for now
