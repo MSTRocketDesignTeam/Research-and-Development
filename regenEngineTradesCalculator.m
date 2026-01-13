@@ -22,18 +22,22 @@ filename_datastorage = append(pwd, "\regenEngineTradesData.mat");
 
 eta_cstar_min = .6;
 cost_max = 200; % USD
-burntime = 10; % s
+% Normalized now to 1s because the 10s burntime requirement was removed
+%   (01/10/2026)
+burntime = 5; % s
 
 %% Constants
 % g0                        Accel. due to gravity
 % Lstar                     L* for props: liquid eth and liquid nit
+% CR                        Contraction ratio
 % R_universal               Universal gas constant
 % pa                        Ambient pressure
 % DF*                       Design factor *(for multiple things)
 % T_AlSi10Mg_melt           Chamber alloy melting temp
 % cost_nit                  USD per kgm
 % cost_eth                  USD per kgm
-% yieldstress_alloy
+% yieldstress_alloy*        Linearly interpolated with separate function
+%                           (dependent on hot wall temperature)
 % E_alloy                   Modulus of elasticity of chamber alloy
 % alpha_alloy               CTE
 % lchannel                  Conservative estimate of coolant channel length
@@ -41,13 +45,15 @@ burntime = 10; % s
 %                               minimum required coolant pressure)
 
 g0 = 9.81;
-Lstar = 1.2; % estimate
-CR = 8;
+Lstar = .6; % estimate for MIT's value for their eth/nit biprop was .6
+CR = 6;
 R_universal = 8.314;
 % Calculate pa at Rolla's altitude
 % psi to pa
 p_sea = 14.7 .* 6894.76;
+% K
 T_sea = 288.15;
+% kg/mol
 mlr_wgt_air = .02896968;
 L = .00976;
 % Thought I found this on wikipedia the other day but now I can't find it
@@ -56,8 +62,8 @@ alt = 342;
 pa = fPAtAlt(alt);
 
 % RDT technically has no DF for these
-DFstress = 2;
-DFtemp = 1.15;
+DFstress = 1.5;
+DFtemp = 1.2;
 DFcoolantpress = 1.2;
 % g/cc to kg/m^3
 densalloy = 2.665 .* 10.^-3;
@@ -66,15 +72,14 @@ T_AlSi10Mg_melt = 570 + 273.15;
 % USD/lbm to USD/kgm
 cost_nit = 6 .* 2.20462;
 cost_eth = .46 .* 2.20462;
-% Data sheet on material properties for AlSi10Mg - https://fathommfg.com/wp-content/uploads/2020/11/EOS_Aluminium_AlSi10Mg_en.pdf
-% MPa to Pa (270 +- 10) - heat treated would be 245, 230 +- 15
-yieldstress_alloy = 280E6;
 % MPa to Pa (75 +- 10) - heat treated would be 80, 70 +- 10
 E_alloy = 85E9;
 % From data sheet: https://www.eos.info/var/assets/03_system-related-assets/material-related-contents/metal-materials-and-examples/metal-material-datasheet/aluminium/material_datasheet_eos_aluminium-alsi10mg_en_web.pdf
+% Took most conservative/highest estimate
+% K^-1
 alpha_alloy = 27E-6;
 % in to m
-l_channel = 5 .* .0254;
+% l_channel = 5 .* .0254;
 numelsnoz = 10;
 numsectionsnoz = 5;
 
@@ -100,18 +105,17 @@ list_var_names = ["pc";
                   "k_wall"];
 
 %% Some precalcs
-% Applying DF's to hot wall temp and hot wall thermal stress
+% Applying DF's to hot wall temp
 T_w_max = T_AlSi10Mg_melt ./ DFtemp;
-yieldstress_max = yieldstress_alloy ./ DFstress;
 
 %% Make iteration ranges for independent vars
 stdvarrange = [1];
 highdefvarrange = linspace(.8, 1.2, 5);
 stdvarrange = highdefvarrange;
 % psi to Pa
-pc_nom = 250 .* 6894.76;
+pc_nom = 160 .* 6894.76;
 OF_nom = 4.4;
-expansion_ratio_nom = 4;
+expansion_ratio_nom = 1.9;
 % lbm/s -> kgm/s
 mdot_nom = 1 .* .45359237;
 % mm to m
@@ -127,8 +131,9 @@ k_wall_nom = (98 + 183) / 2;
 
 pc_range = pc_nom .* stdvarrange;
 % OF_range = OF_nom .* stdvarrange;
-OF_range = linspace(1, 1.1*OF_nom, 6);
-expansion_ratio_range = expansion_ratio_nom .* stdvarrange;
+OF_range = linspace(1.5, 1.7, 5);
+% expansion_ratio_range = expansion_ratio_nom .* stdvarrange;
+expansion_ratio_range = linspace(1.8, 2.2, 5);
 mdot_range = mdot_nom .* stdvarrange;
 d_channel_range = d_channel_nom .* stdvarrange;
 num_channels_range = num_channels_nom .* stdvarrange;
@@ -233,6 +238,7 @@ mu_exp1_calc = fmu_eth(T_exp1, rho_exp1);
 thermstress = zeros(ndsvar);
 T_coolant_f = zeros(ndsvar);
 Twg = zeros(ndsvar);
+yieldstress_alloy = zeros(ndsvar);
 Twl = zeros(ndsvar);
 q = zeros(ndsvar);
 Isp = zeros(ndsvar);
@@ -243,7 +249,7 @@ cstar_theo = zeros(ndsvar);
 thrust = zeros(ndsvar);
 Ae = zeros(ndsvar);
 eta_cstar = zeros(ndsvar);
-Tt = zeros(ndsvar);
+throat_flow_temp = zeros(ndsvar);
 Vc = zeros(ndsvar);
 flow_sonic = zeros(ndsvar);
 vol_engine = zeros(ndsvar);
@@ -260,6 +266,9 @@ L_chamber_circular_narrow = zeros(ndsvar);
 Rc = zeros(ndsvar);
 L_chamber_linear = zeros(ndsvar);
 TWR = zeros(ndsvar);
+hoop_stress_doghouse = zeros(ndsvar);
+hoop_stress_fins = zeros(ndsvar);
+
 
 %% Begin calcs
 % Workflow - hybrid iterative vectorized method
@@ -293,7 +302,7 @@ runtime = tic;
 % CEA syntax:
 % py.rocketcea.cea_obj.CEA_Obj(fuelName, oxName) - see input_cards.py
 % CEA_Obj class functions: (Pc, MR, eps); Pc in psi, MR is OF, eps is expansion_ratio
-cea_out = py.rocketcea.cea_obj.CEA_Obj(fuelName = fuel_name, oxName = ox_name);
+cea_out = py.rocketcea.cea_obj.CEA_Obj(fuelName = fuel_name, oxName = ox_name, fac_CR = CR);
 %% Vary pc
 for i_pc = 1:length(pc_range)
     pc = pc_range(i_pc);
@@ -312,22 +321,26 @@ for i_pc = 1:length(pc_range)
             % (for outputs)
             % Get specific heat ratio and flow molar weight at throat - for
             % later use in thrust coeff and sonic throat flow velocity calc
-            gamma_es = double(cea_out.get_Throat_MolWt_gamma(Pc = pc * 0.000145038, MR = OF, eps = expansion_ratio));
-            mlr_wgt_flow_t = gamma_es(1) .* 10.^-3; % lbm/lbm-mol -> kg/mol
-            gamma_e = gamma_es(2);
+            throat_flow_props = double(cea_out.get_Throat_MolWt_gamma(Pc = pc * 0.000145038, MR = OF, eps = expansion_ratio));
+            throat_flow_mlr_wgt = throat_flow_props(1) .* 10.^-3; % lbm/lbm-mol -> kg/mol
+            throat_flow_gamma = throat_flow_props(2);
+            exit_flow_props = double(cea_out.get_exit_MolWt_gamma(Pc = pc * 0.000145038, MR = OF, eps = expansion_ratio));
+            exit_flow_gamma = exit_flow_props(2);
             % Needed for thrust calcs later
             pex = pc ./ cea_out.get_PcOvPe(Pc = pc * 0.000145038, MR = OF, eps = expansion_ratio);
-            Cf = sqrt(2 .* gamma_e.^2 ./ (gamma_e - 1) .* (2 ./ (gamma_e + 1)).^((gamma_e + 1) ./ (gamma_e - 1)).*(1 - (pex ./ pc).^((gamma_e - 1) ./ gamma_e))) + expansion_ratio .* ((pex - pa) ./ pc);
+            Cf = sqrt(2 .* exit_flow_gamma.^2 ./ (exit_flow_gamma - 1) .* (2 ./ (exit_flow_gamma + 1)).^((exit_flow_gamma + 1) ./ (exit_flow_gamma - 1)).*(1 - (pex ./ pc).^((exit_flow_gamma - 1) ./ exit_flow_gamma))) + expansion_ratio .* ((pex - pa) ./ pc);
             % Thought theoretical Isp might be interesting to compare to
             % predicted-actual, not really used atm though (ca 11/04/2025)
             Isp_theo = cea_out.get_Isp(Pc = pc * 0.000145038, MR = OF, eps = expansion_ratio);
             % Gets throat temp needed for several calculations later
             % deg R to K
-            Tts = double(cea_out.get_Temperatures(Pc = pc * 0.000145038, MR = OF, eps = expansion_ratio)) .* 5 ./ 9;
-            Tt(i_pc, i_OF, i_eps, :, :, :, :, :, :) = Tts(2);
+            CEA_temps = double(cea_out.get_Temperatures(Pc = pc * 0.000145038, MR = OF, eps = expansion_ratio)) .* 5 ./ 9;
+            throat_flow_temp(i_pc, i_OF, i_eps, :, :, :, :, :, :) = CEA_temps(2);
+            chamber_flow_temp = CEA_temps(1);
+            exit_temp = CEA_temps(3);
             % Fix units from CEA output lbm/ft^3 -> kg/m^3
-            rho_ts = double(cea_out.get_Densities(Pc = pc * 0.000145038, MR = OF, eps = expansion_ratio)) .* 16.018463;
-            rho_t = rho_ts(2);
+            CEA_densities = double(cea_out.get_Densities(Pc = pc * 0.000145038, MR = OF, eps = expansion_ratio)) .* 16.018463;
+            throat_flow_density = CEA_densities(2);
             % Gets things needed for gas film coeff calc later
             throat_trans = double(cea_out.get_Throat_Transport(Pc = pc * 0.000145038, MR = OF, eps = expansion_ratio));
             % milipoise to Pa-s
@@ -339,8 +352,10 @@ for i_pc = 1:length(pc_range)
             cstar_theo(i_pc, i_OF, i_eps, :, :, :, :, :, :) = cea_out.get_Cstar(Pc = pc * 0.000145038, MR = OF) .* .3048;
 
             % Get some KPPs and other sizing info for trade alternatives
-            flow_sonic(i_pc, i_OF, i_eps, :, :, :, :, :, :) = sqrt(gamma_e * R_universal / mlr_wgt_flow_t * squeeze(Tt(i_pc, i_OF, i_eps, :, :, :, :, :, :)));
-            At(i_pc, i_OF, i_eps, :, :, :, :, :, :) = mdot_range ./ squeeze(flow_sonic(i_pc, i_OF, i_eps, :, :, :, :, :, :)) ./ rho_t;
+            flow_sonic(i_pc, i_OF, i_eps, :, :, :, :, :, :) = sqrt(throat_flow_gamma * R_universal / throat_flow_mlr_wgt * squeeze(throat_flow_temp(i_pc, i_OF, i_eps, :, :, :, :, :, :)));
+            % Check sonic flow velocity
+            CEA_velocity_sonic_flow = cea_out.get_Chamber_SonicVel(Pc = pc * 0.000145038, MR = OF, eps = expansion_ratio);
+            At(i_pc, i_OF, i_eps, :, :, :, :, :, :) = mdot_range ./ squeeze(flow_sonic(i_pc, i_OF, i_eps, :, :, :, :, :, :)) ./ throat_flow_density;
             Vc(i_pc, i_OF, i_eps, :, :, :, :, :, :) = squeeze(At(i_pc, i_OF, i_eps, :, :, :, :, :, :)) .* Lstar;
             Ae(i_pc, i_OF, i_eps, :, :, :, :, :, :) = squeeze(At(i_pc, i_OF, i_eps, :, :, :, :, :, :)) .* expansion_ratio;
             thrust(i_pc, i_OF, i_eps, :, :, :, :, :, :) = Cf .* squeeze(At(i_pc, i_OF, i_eps, :, :, :, :, :, :)) .* pc;
@@ -371,7 +386,7 @@ for i_pc = 1:length(pc_range)
             % equation
             % hydraulic diam is 4 * area / perimeter
             dt = sqrt(squeeze(At(i_pc, i_OF, i_eps, :, :, :, :, :, :)) .* 4 ./ pi);
-            Ret = rho_t .* squeeze(flow_vel(i_pc, i_OF, i_eps, :, :, :, :, :, :)) .* dt ./ mu_flow;
+            Ret = throat_flow_density .* squeeze(flow_vel(i_pc, i_OF, i_eps, :, :, :, :, :, :)) .* dt ./ mu_flow;
             Re_coolant = dH_channels .* fluid_vel .* rho_coolant ./ mu_coolant;
             Pr_coolant = cp_coolant_avg .* mu_coolant ./ k_coolant;
             % Exponent on Pr_coolant is .4 bc fluid is being heated - https://www.sciencedirect.com/topics/engineering/dittus-boelter-correlation?
@@ -383,18 +398,12 @@ for i_pc = 1:length(pc_range)
             hl(hl_laminar_mask) = .023 .* cp_coolant_avg .* mdot_channel(hl_laminar_mask) ./ A_channel_range(hl_laminar_mask) .* Re_coolant(hl_laminar_mask).^-.2 .* (mu_coolant(hl_laminar_mask) .* cp_coolant_avg ./ k_coolant(hl_laminar_mask)).^(-2./3);
             % Dittus Boelter correlation, used with caution from Re = 2300 to Re = 10k, above 10k it's pretty good
             hl(hl_turbulent_mask) = NU_coolant(hl_turbulent_mask) .* k_coolant(hl_turbulent_mask) ./ dH_channels(hl_turbulent_mask);
-            hg = .023 .* (rho_t .* squeeze(flow_vel(i_pc, i_OF, i_eps, :, :, :, :, :, :))).^.8 ./ dt.^.2 .* Pr_flow.^.4 .* k_flow ./ mu_flow.^.8;
-         
-            % % For debugging
-            % if i_pc == 3 && i_OF == 3 && i_eps == 3
-            %     disp(hl(3,3,3,3,3,3))
-            %     disp(hg(3,3,3,3,3,3))
-            % end
+            hg = .023 .* (throat_flow_density .* squeeze(flow_vel(i_pc, i_OF, i_eps, :, :, :, :, :, :))).^.8 ./ dt.^.2 .* Pr_flow.^.4 .* k_flow ./ mu_flow.^.8;
 
             % Recommended by Claude after I asked about needing Re, Pr,
             % Nusselt, and Biot numbers, and fric coeff for Brennen Kohlman
             % (for ANSYS) - PENDING REVIEW
-            % Re_gas = rho_t .* flow_vel .* dH_channels ./ mu_flow;
+            % Re_gas = throat_flow_density .* flow_vel .* dH_channels ./ mu_flow;
             % Re_coolant = dH_channels .* fluid_vel .* rho_coolant ./ mu_coolant;
             % % Coolant Prandtl (you have gas Pr from CEA)
             % Pr_coolant = mu_coolant .* cp_coolant_avg ./ k_coolant;
@@ -409,16 +418,15 @@ for i_pc = 1:length(pc_range)
             % f_coolant = 0.079 ./ Re_coolant.^0.25;
 
             % Get radial heat transfer through wall and hot wall temps
-            q(i_pc, i_OF, i_eps, :, :, :, :, :, :) = (squeeze(Tt(i_pc, i_OF, i_eps, :, :, :, :, :, :)) - T_coolant_range) ./ (1 ./ hg + wallt_range ./ k_walls + 1 ./ hl);
-            Twg(i_pc, i_OF, i_eps, :, :, :, :, :, :) = squeeze(Tt(i_pc, i_OF, i_eps, :, :, :, :, :, :)) - squeeze(q(i_pc, i_OF, i_eps, :, :, :, :, :, :)) ./ hg;
+            % Accounts for hl coefficient being for heat transfer over
+            %   larger area than hg coefficient (hot wall area facing
+            %   channel per-cross-section is larger inside the channel than
+            %   in the chamber)
+            q(i_pc, i_OF, i_eps, :, :, :, :, :, :) = (squeeze(throat_flow_temp(i_pc, i_OF, i_eps, :, :, :, :, :, :)) - T_coolant_range) ./ (1 ./ hg + wallt_range ./ k_walls + 1 ./ hl ./ ((dt + wallt_range) ./ dt));
+            Twg(i_pc, i_OF, i_eps, :, :, :, :, :, :) = squeeze(throat_flow_temp(i_pc, i_OF, i_eps, :, :, :, :, :, :)) - squeeze(q(i_pc, i_OF, i_eps, :, :, :, :, :, :)) ./ hg;
             Twl(i_pc, i_OF, i_eps, :, :, :, :, :, :) = T_coolant_range + squeeze(q(i_pc, i_OF, i_eps, :, :, :, :, :, :)) ./ hl;
 
-            % delta T of coolant just at throat cross section
-            deltaT_coolantslice = squeeze(q(i_pc, i_OF, i_eps, :, :, :, :, :, :)) .* d_channel_range ./ mdot_channel ./ cp_coolant_avg;
-            % assume at worst, it's that much at EVERY cross section
-            % per-channel delta T
-            deltaT_coolant = deltaT_coolantslice .* l_channel;
-            T_coolant_f(i_pc, i_OF, i_eps, :, :, :, :, :, :) = T_coolant_range + deltaT_coolant;
+            yieldstress_alloy(i_pc, i_OF, i_eps, :, :, :, :, :, :) = getYieldStress(squeeze(Twg(i_pc, i_OF, i_eps, :, :, :, :, :, :)));
 
             %% Calculate nozzle contour geometry
 
@@ -470,6 +478,16 @@ for i_pc = 1:length(pc_range)
             %% Chamber circular widen
             R1p(i_pc, i_OF, i_eps, :, :, :, :, :, :) = Rt .* 1.5;
             Rc(i_pc, i_OF, i_eps, :, :, :, :, :, :) = CR.^.5 .* Rt;
+            % Side note: can calculate max hoop stress now
+            % Equa: hoop_stress_doghouse = pd/2t
+            % This hoop stress calc is calculating the "doghouse effect"
+            %   stress
+            hoop_stress_doghouse(i_pc, i_OF, i_eps, :, :, :, :, :, :) = pc .* 2 .* squeeze(Rc(i_pc, i_OF, i_eps, :, :, :, :, :, :)) ./ 2 ./ wallt_range;
+            % This hoop stress calc is calculating the stress on the fins
+            %   between the channels, starting from one hot-wall-thickness
+            %   into the hot-wall and ending where the fin contacts the
+            %   outer jacket wall
+            hoop_stress_fins(i_pc, i_OF, i_eps, :, :, :, :, :, :) = pc .* 2 .* (squeeze(Rc(i_pc, i_OF, i_eps, :, :, :, :, :, :)) + wallt_range) ./ 2 ./ d_channel_range;
             % Arbitrary chamber converging section geometry choice. Made it
             % a circle for simplicity
             % Try deriving alpha from scale of how far in between throat
@@ -564,7 +582,7 @@ for i_pc = 1:length(pc_range)
             dz_chamber_circular_narrow = diff(z_chamber_circular_narrow, [], ndims(z_chamber_circular_narrow));
             Vcl = Vcl - pi .* sum(r_chamber_circular_narrow(:, :, :, :, :, :, 1:end-1).^2 .* dz_chamber_circular_narrow, ndims(r_chamber_circular_narrow));
 
-            L_chamber_linear(i_pc, i_OF, i_eps, :, :, :, :, :, :) = Vcl ./ (2 .* pi .* squeeze(Rc(i_pc, i_OF, i_eps, :, :, :, :, :, :)).^2);
+            L_chamber_linear(i_pc, i_OF, i_eps, :, :, :, :, :, :) = Vcl ./ (pi .* squeeze(Rc(i_pc, i_OF, i_eps, :, :, :, :, :, :)).^2);
 
             % r_chamber_linear = Rc .* ones(1, 50);
             r_chamber_linear = fRshpSmmtnArrys(ones(1, numelsnoz), ndims(squeeze(L_chamber_circular_narrow(i_pc, i_OF, i_eps, :, :, :, :, :, :))));
@@ -577,11 +595,56 @@ for i_pc = 1:length(pc_range)
             z_chamber_linear = z_chamber_linear + max(z_chamber_circular_narrow, [], 7);
 
             %% Compile all sections to export to app
-            r_engine(i_pc, i_OF, i_eps, :, :, :, :, :, :, :) = cat(ndims(r_nozzle_parabolic), r_nozzle_parabolic, r_nozzle_circular, r_chamber_circular_widen, r_chamber_circular_narrow, r_chamber_linear);
-            z_engine(i_pc, i_OF, i_eps, :, :, :, :, :, :, :) = cat(ndims(z_nozzle_parabolic), z_nozzle_parabolic, z_nozzle_circular, z_chamber_circular_widen, z_chamber_circular_narrow, z_chamber_linear);
-            vol_engine(i_pc, i_OF, i_eps, :, :, :, :, :, :) = pi .* sum(squeeze(r_engine(i_pc, i_OF, i_eps, :, :, :, :, :, :, :)).^2, ndims(squeeze(r_engine(i_pc, i_OF, i_eps, :, :, :, :, :, :, :))));
+            r_engine(i_pc, i_OF, i_eps, :, :, :, :, :, :, :) = cat(7, r_nozzle_parabolic, r_nozzle_circular, r_chamber_circular_widen, r_chamber_circular_narrow, r_chamber_linear);
+            z_engine(i_pc, i_OF, i_eps, :, :, :, :, :, :, :) = cat(7, z_nozzle_parabolic, z_nozzle_circular, z_chamber_circular_widen, z_chamber_circular_narrow, z_chamber_linear);
+            vol_engine(i_pc, i_OF, i_eps, :, :, :, :, :, :) = pi .* sum((squeeze(r_engine(i_pc, i_OF, i_eps, :, :, :, :, :, :, :)) + 3 .* wallt_range).^2 - squeeze(r_engine(i_pc, i_OF, i_eps, :, :, :, :, :, :, :)).^2 - num_channels_range .* d_channel_range.^2, 7);
+            
+            % Axial temperature
+            area_ratio = squeeze(r_engine(i_pc, i_OF, i_eps, :, :, :, :, :, :, :)).^2 ./ Rt.^2;
+            % Hardcoded 7 because ndims(area_ratio) might not return the
+            %   right number if the final dimension is singleton
+            idx_throat = 20; % Where the end of r_chamber_circular_narrow is in r_engine, because r_chamber_circular_narrow actually progresses correctly- forwards
+            chamber_flow_mach = cea_out.get_Chamber_MachNumber(Pc = pc * 0.000145038, MR = OF, fac_CR = CR);
+            chamber_flow_props = double(cea_out.get_Chamber_MolWt_gamma(Pc = pc * 0.000145038, MR = OF, eps = expansion_ratio));
+            chamber_flow_gamma = chamber_flow_props(2);
+            % Rearranged stagnation temp equation with knowns at chamber
+            stag_flow_temp = chamber_flow_temp ./ (1 + (chamber_flow_gamma - 1) ./ 2 .* chamber_flow_mach.^2).^-1;
+            % Can get some axial temps from get_Temperatures by CEA
+            %   (post-throat/supersonic)
+            % size_super = )
+            numels_area_ratio = size(area_ratio, 7);
+            axial_temps = zeros(size(squeeze(r_engine(i_pc, i_OF, i_eps, :, :, :, :, :, :, :))));
+            size_array_temp = idx_throat;
+            axial_temps_super = zeros(1, size_array_temp);
+            for i_station = 1:(idx_throat - 1)
+                area = 
+                axial_temps_super(i_station) = cea_out.get_Temperatures(Pc = pc * 0.000145038, MR = OF, eps = area));
+            end
+            % throat_flow_temp is basically a scalar past the first three
+            %   iterators
+            axial_temps_super(idx_throat) = squeeze(throat_flow_temp(i_pc, i_OF, i_eps, 1));
+            % Get pre-throat/subsonic station temperatures
+            size_array_temp = numels_area_ratio - idx_throat;
+            axial_temps_sub = zeros(1, size_array_temp);
+            for i_station = 1:numels_area_ratio
+                axial_temps_sub = 
+            end
+            axial_temps = cat(7, axial_temps_super, axial_temps_sub);
+
+            % For now, this is just approximated using the throat heat
+            %   transfer
+            % delta T of coolant just at throat cross section
+            deltaT_coolantslice = squeeze(q(i_pc, i_OF, i_eps, :, :, :, :, :, :)) .* d_channel_range ./ mdot_channel ./ cp_coolant_avg;
+            % assume at worst, it's that much at EVERY cross section
+            % per-channel delta T
+            l_channel = 2 .* max(squeeze(z_engine(i_pc, i_OF, i_eps, :, :, :, :, :, :, :)), [], 7);
+            deltaT_coolant = deltaT_coolantslice .* l_channel;
+            T_coolant_f(i_pc, i_OF, i_eps, :, :, :, :, :, :) = T_coolant_range + deltaT_coolant;
+
             % Very crude estimate, basically assumes solid engine. no
-            % cavities inside aka no chamber
+            %   cavities inside aka no chamber
+            % Honestly meaningless atm, was used earlier but now not so
+            %   much. May implement more in the future
             TWR(i_pc, i_OF, i_eps, :, :, :, :, :, :) = squeeze(thrust(i_pc, i_OF, i_eps, :, :, :, :, :, :)) ./ (g0 .* densalloy .* squeeze(vol_engine(i_pc, i_OF, i_eps, :, :, :, :, :, :)));
             if ~isreal(r_engine)
                 disp('non real physical engine design');
@@ -606,9 +669,8 @@ eta_cstar_min = eta_cstar_min .* 100;
 % K to deg C
 T_AlSi10Mg_melt = T_AlSi10Mg_melt - 273.15;
 T_w_max = T_w_max - 273.15;
-% Pa to MPa
-yieldstress_max = yieldstress_max ./ 10.^6;
-yieldstress_alloy = yieldstress_alloy ./ 10.^6;
+% Already in MPa
+yieldstress_max = yieldstress_alloy ./ DFstress;
 % independent vars
 % update this compact cell array too
 % ranges = {pc_range, OF_range, expansion_ratio_range, mdot_range, d_channel_range, num_channels_range, T_coolant_range, wallt_range, k_wall_range};
@@ -643,6 +705,10 @@ P_coolant_min = P_coolant_min .* .000145038;
 eta_cstar = eta_cstar .* 100;
 % Pa to MPa
 thermstress = thermstress ./ 10.^6;
+hoop_stress_doghouse = hoop_stress_doghouse ./ 10.^6;
+hoop_stress_fins = hoop_stress_fins ./ 10.^6;
+total_stress_doghouse = thermstress + hoop_stress_doghouse;
+total_stress_fins = thermstress + hoop_stress_fins;
 % Engine volume and contour info
 % m to mm
 r_engine = r_engine .* 10.^3;
@@ -653,7 +719,7 @@ vol_engine = vol_engine .* 10.^9;
 contourvalnames = ["vol_engine", "L_nozzle_parabolic", "Re", "thetaN", "xN", "R1", "R1p", "alpha", "L_chamber_circular_narrow", "Rc", "L_chamber_linear", "dt"];
 
 % Export to mat file for use in app
-save(filename_datastorage, "T_AlSi10Mg_melt", "T_w_max", "yieldstress_alloy", "yieldstress_max", "eta_cstar_min", "list_var_names", "ranges", "pc_range", "OF_range", "expansion_ratio_range", "mdot_range", "d_channel_range", "num_channels_range", "T_coolant_range", "wallt_range", "k_walls", "thermstress", "T_coolant_f", "P_coolant_min", "Twg", "q", "Isp", "prop_cost", "dt", "cstar", "cstar_theo", "thrust", "de", "eta_cstar", "Vc", "CR", "flow_sonic", "r_engine", "z_engine", "vol_engine", "L_nozzle_parabolic", "Re", "thetaN", "xN", "R1", "R1p", "alpha", "L_chamber_circular_narrow", "Rc", "L_chamber_linear", "contourvalnames", "TWR");
+save(filename_datastorage, "T_AlSi10Mg_melt", "T_w_max", "yieldstress_alloy", "yieldstress_max", "eta_cstar_min", "list_var_names", "ranges", "pc_range", "OF_range", "expansion_ratio_range", "mdot_range", "d_channel_range", "num_channels_range", "T_coolant_range", "wallt_range", "k_walls", "thermstress", "total_stress_doghouse", "total_stress_fins", "hoop_stress_doghouse", "hoop_stress_fins", "T_coolant_f", "P_coolant_min", "Twg", "Twl", "q", "Isp", "prop_cost", "dt", "cstar", "cstar_theo", "thrust", "de", "eta_cstar", "Vc", "CR", "flow_sonic", "r_engine", "z_engine", "vol_engine", "L_nozzle_parabolic", "Re", "thetaN", "xN", "R1", "R1p", "alpha", "L_chamber_circular_narrow", "Rc", "L_chamber_linear", "contourvalnames", "TWR");
 
 
 %% More complex functions
@@ -696,4 +762,34 @@ function pvapeth = fpvapeth(T)
 
     % bar to Pa
     pvapeth(idxsvalid) = 10.^(A(idxsvalid) - B(idxsvalid) ./ (T(idxsvalid) + C(idxsvalid))) .* 10.^5;
+end
+
+% Assuming material is AlSi10Mg
+% Vectorized
+% temp is Twg, hot wall temperature, in Kelvin
+% Output is in MPa
+function yieldStress = getYieldStress(temp)
+    % Data sheet on material properties for AlSi10Mg - https://fathommfg.com/wp-content/uploads/2020/11/EOS_Aluminium_AlSi10Mg_en.pdf
+    % MPa to Pa (270 +- 10) - heat treated would be 245, 230 +- 15
+    % Also got these tabulated value from "The variation of the yield stress vs
+    %   temperature for experimented materials"
+    % K to deg C
+    temp = temp - 273.15;
+    % deg C, MPa
+    % Also adding really high value just to avoid having to fix the NaN
+    %   error returned by interp1 when you feed it a value outside of the x
+    %   range
+    temps = [0;
+             150;
+             250;
+             350;
+             450;
+             10000];
+    stresses = [280;
+                280;
+                210;
+                135;
+                65;
+                65];
+    yieldStress = interp1(temps, stresses, temp);
 end
