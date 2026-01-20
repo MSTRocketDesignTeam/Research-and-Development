@@ -337,7 +337,7 @@ for i_pc = 1:length(pc_range)
             CEA_temps = double(cea_out.get_Temperatures(Pc = pc * 0.000145038, MR = OF, eps = expansion_ratio)) .* 5 ./ 9;
             throat_flow_temp(i_pc, i_OF, i_eps, :, :, :, :, :, :) = CEA_temps(2);
             chamber_flow_temp = CEA_temps(1);
-            exit_temp = CEA_temps(3);
+            exit_flow_temp = CEA_temps(3);
             % Fix units from CEA output lbm/ft^3 -> kg/m^3
             CEA_densities = double(cea_out.get_Densities(Pc = pc * 0.000145038, MR = OF, eps = expansion_ratio)) .* 16.018463;
             throat_flow_density = CEA_densities(2);
@@ -600,8 +600,11 @@ for i_pc = 1:length(pc_range)
             vol_engine(i_pc, i_OF, i_eps, :, :, :, :, :, :) = pi .* sum((squeeze(r_engine(i_pc, i_OF, i_eps, :, :, :, :, :, :, :)) + 3 .* wallt_range).^2 - squeeze(r_engine(i_pc, i_OF, i_eps, :, :, :, :, :, :, :)).^2 - num_channels_range .* d_channel_range.^2, 7);
             
             % Axial temperature
-            area_ratio = squeeze(r_engine(i_pc, i_OF, i_eps, :, :, :, :, :, :, :)).^2 ./ Rt.^2;
-            % Hardcoded 7 because ndims(area_ratio) might not return the
+            area_ratios = squeeze(r_engine(i_pc, i_OF, i_eps, :, :, :, :, :, :, :)).^2 ./ Rt.^2;
+            % area_ratios is the same for every for loop iteration varying
+            %   across expansion_ratio_range
+            area_ratios = squeeze(area_ratios(1, 1, 1, 1, 1, 1, :));
+            % Hardcoded 7 because ndims(area_ratios) might not return the
             %   right number if the final dimension is singleton
             idx_throat = 20; % Where the end of r_chamber_circular_narrow is in r_engine, because r_chamber_circular_narrow actually progresses correctly- forwards
             chamber_flow_mach = cea_out.get_Chamber_MachNumber(Pc = pc * 0.000145038, MR = OF, fac_CR = CR);
@@ -612,13 +615,14 @@ for i_pc = 1:length(pc_range)
             % Can get some axial temps from get_Temperatures by CEA
             %   (post-throat/supersonic)
             % size_super = )
-            numels_area_ratio = size(area_ratio, 7);
-            axial_temps = zeros(size(squeeze(r_engine(i_pc, i_OF, i_eps, :, :, :, :, :, :, :))));
+            % area_ratios is 1D array
+            numels_area_ratio = numel(area_ratios);
             size_array_temp = idx_throat;
             axial_temps_super = zeros(1, size_array_temp);
             for i_station = 1:(idx_throat - 1)
-                area = 
-                axial_temps_super(i_station) = cea_out.get_Temperatures(Pc = pc * 0.000145038, MR = OF, eps = area));
+                area_ratio = area_ratios(i_station);
+                placeholder_temp_array = double(cea_out.get_Temperatures(Pc = pc * 0.000145038, MR = OF, eps = area_ratio));
+                axial_temps_super(i_station) = placeholder_temp_array(3);
             end
             % throat_flow_temp is basically a scalar past the first three
             %   iterators
@@ -627,7 +631,8 @@ for i_pc = 1:length(pc_range)
             size_array_temp = numels_area_ratio - idx_throat;
             axial_temps_sub = zeros(1, size_array_temp);
             for i_station = 1:numels_area_ratio
-                axial_temps_sub = 
+                % Use get_full_cea_output, parse large output string
+                % axial_temps_sub = cea_out.get_full_cea_output()
             end
             axial_temps = cat(7, axial_temps_super, axial_temps_sub);
 
