@@ -604,8 +604,6 @@ for i_pc = 1:length(pc_range)
             % area_ratios is the same for every for loop iteration varying
             %   across expansion_ratio_range
             area_ratios = squeeze(area_ratios(1, 1, 1, 1, 1, 1, :));
-            % Hardcoded 7 because ndims(area_ratios) might not return the
-            %   right number if the final dimension is singleton
             idx_throat = 20; % Where the end of r_chamber_circular_narrow is in r_engine, because r_chamber_circular_narrow actually progresses correctly- forwards
             chamber_flow_mach = cea_out.get_Chamber_MachNumber(Pc = pc * 0.000145038, MR = OF, fac_CR = CR);
             chamber_flow_props = double(cea_out.get_Chamber_MolWt_gamma(Pc = pc * 0.000145038, MR = OF, eps = expansion_ratio));
@@ -629,12 +627,12 @@ for i_pc = 1:length(pc_range)
             axial_temps_super(idx_throat) = squeeze(throat_flow_temp(i_pc, i_OF, i_eps, 1));
             % Get pre-throat/subsonic station temperatures
             size_array_temp = numels_area_ratio - idx_throat;
-            axial_temps_sub = zeros(1, size_array_temp);
-            for i_station = 1:numels_area_ratio
-                % Use get_full_cea_output, parse large output string
-                % axial_temps_sub = cea_out.get_full_cea_output()
-            end
-            axial_temps = cat(7, axial_temps_super, axial_temps_sub);
+
+            % Use get_full_cea_output, parse large output string
+            area_ratios_spliced = area_ratios((idx_throat + 1) : end, 1);
+            axial_temps_sub = cea_out.get_full_cea_output(Pc = pc * 0.000145038, MR = OF, eps = area_ratio, subar = area_ratios_spliced, short_output = 1, fac_CR = CR)
+
+            % axial_temps = cat(7, axial_temps_super, axial_temps_sub);
 
             % For now, this is just approximated using the throat heat
             %   transfer
