@@ -418,11 +418,13 @@ for i_pc = 1:length(pc_range)
             % f_coolant = 0.079 ./ Re_coolant.^0.25;
 
             % Get radial heat transfer through wall and hot wall temps
-            % Accounts for hl coefficient being for heat transfer over
+            % Must account for hl coefficient being for heat transfer over
             %   larger area than hg coefficient (hot wall area facing
             %   channel per-cross-section is larger inside the channel than
             %   in the chamber)
-            q(i_pc, i_OF, i_eps, :, :, :, :, :, :) = (squeeze(throat_flow_temp(i_pc, i_OF, i_eps, :, :, :, :, :, :)) - T_coolant_range) ./ (1 ./ hg + wallt_range ./ k_walls + 1 ./ hl ./ ((dt + wallt_range) ./ dt));
+            %   UPDATE!!!
+            % Chunk up q into parts- should not be holistic q for situation
+            q(i_pc, i_OF, i_eps, :, :, :, :, :, :) = (squeeze(throat_flow_temp(i_pc, i_OF, i_eps, :, :, :, :, :, :)) - T_coolant_range) ./ (1 ./ hg + wallt_range ./ k_walls + 1 ./ hl);
             Twg(i_pc, i_OF, i_eps, :, :, :, :, :, :) = squeeze(throat_flow_temp(i_pc, i_OF, i_eps, :, :, :, :, :, :)) - squeeze(q(i_pc, i_OF, i_eps, :, :, :, :, :, :)) ./ hg;
             Twl(i_pc, i_OF, i_eps, :, :, :, :, :, :) = T_coolant_range + squeeze(q(i_pc, i_OF, i_eps, :, :, :, :, :, :)) ./ hl;
 
