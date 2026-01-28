@@ -335,8 +335,8 @@ for i_pc = 1:length(pc_range)
             % Gets throat temp needed for several calculations later
             % deg R to K
             CEA_temps = double(cea_out.get_Temperatures(Pc = pc * 0.000145038, MR = OF, eps = expansion_ratio)) .* 5 ./ 9;
-            throat_flow_temp(i_pc, i_OF, i_eps, :, :, :, :, :, :) = CEA_temps(2);
             chamber_flow_temp = CEA_temps(1);
+            throat_flow_temp(i_pc, i_OF, i_eps, :, :, :, :, :, :) = CEA_temps(2);
             exit_flow_temp = CEA_temps(3);
             % Fix units from CEA output lbm/ft^3 -> kg/m^3
             CEA_densities = double(cea_out.get_Densities(Pc = pc * 0.000145038, MR = OF, eps = expansion_ratio)) .* 16.018463;
@@ -446,6 +446,7 @@ for i_pc = 1:length(pc_range)
             % Nozzle parabolic
             % Chamber circular narrow
             % Chamber linear
+            % ----------------
 
             %% Nozzle circular
             % Give the contour arrays a few datapoints
@@ -536,9 +537,6 @@ for i_pc = 1:length(pc_range)
                 % account for that with a shift
                 rShift = r_nozzle_circular(:, :, :, :, :, :, 1) - r_nozzle_parabolic(:, :, :, :, :, :, 1);
                 r_nozzle_parabolic = r_nozzle_parabolic + rShift;
-            
-                % Flip z
-                z_nozzle_parabolic = flip(z_nozzle_parabolic, ndims(z_nozzle_parabolic));
     
                 %% Chamber circular narrow
                 % Yes I realize it isn't circular, it used to be and I
@@ -560,6 +558,7 @@ for i_pc = 1:length(pc_range)
                     etaRc = etaRc + .1 .* (1 - etaRc);
                 end
             end
+
             L_chamber_circular_narrow(i_pc, i_OF, i_eps, :, :, :, :, :, :) = z1;
 
             z_chamber_circular_narrow = fRshpSmmtnArrys(linspace(0, 1, numelsnoz), ndims(squeeze(L_chamber_circular_narrow(i_pc, i_OF, i_eps, :, :, :, :, :, :))));
@@ -571,6 +570,11 @@ for i_pc = 1:length(pc_range)
             % shift r out and z out
             z_chamber_circular_narrow = z_chamber_circular_narrow + z_chamber_circular_widen(:, :, :, :, :, :, end);
             r_chamber_circular_narrow = r_chamber_circular_narrow + r_chamber_circular_widen(:, :, :, :, :, :, end);
+
+            %% Adjust nozzle parabolic
+            % Need to flip r_nozzle_parabolic to match 
+
+            r_nozzle_parabolic = flip(r_nozzle_parabolic, ndims(r_nozzle_parabolic));
 
             %% Chamber linear
 
@@ -601,40 +605,56 @@ for i_pc = 1:length(pc_range)
             z_engine(i_pc, i_OF, i_eps, :, :, :, :, :, :, :) = cat(7, z_nozzle_parabolic, z_nozzle_circular, z_chamber_circular_widen, z_chamber_circular_narrow, z_chamber_linear);
             vol_engine(i_pc, i_OF, i_eps, :, :, :, :, :, :) = pi .* sum((squeeze(r_engine(i_pc, i_OF, i_eps, :, :, :, :, :, :, :)) + 3 .* wallt_range).^2 - squeeze(r_engine(i_pc, i_OF, i_eps, :, :, :, :, :, :, :)).^2 - num_channels_range .* d_channel_range.^2, 7);
             
-            % Axial temperature
-            area_ratios = squeeze(r_engine(i_pc, i_OF, i_eps, :, :, :, :, :, :, :)).^2 ./ Rt.^2;
-            % area_ratios is the same for every for loop iteration varying
-            %   across expansion_ratio_range
-            area_ratios = squeeze(area_ratios(1, 1, 1, 1, 1, 1, :));
-            idx_throat = 20; % Where the end of r_chamber_circular_narrow is in r_engine, because r_chamber_circular_narrow actually progresses correctly- forwards
+            % Axial temperature gradient
+            %   Get temps here:
+            % --------------------
+            % Chamber
+            % Chamber parab -> Chamber circ
+            % Throat
+            % Nozzle circ -> Nozzle parab
+            % Exit
             chamber_flow_mach = cea_out.get_Chamber_MachNumber(Pc = pc * 0.000145038, MR = OF, fac_CR = CR);
             chamber_flow_props = double(cea_out.get_Chamber_MolWt_gamma(Pc = pc * 0.000145038, MR = OF, eps = expansion_ratio));
             chamber_flow_gamma = chamber_flow_props(2);
-            % Rearranged stagnation temp equation with knowns at chamber
+           
             stag_flow_temp = chamber_flow_temp ./ (1 + (chamber_flow_gamma - 1) ./ 2 .* chamber_flow_mach.^2).^-1;
-            % Can get some axial temps from get_Temperatures by CEA
-            %   (post-throat/supersonic)
-            % size_super = )
-            % area_ratios is 1D array
-            numels_area_ratio = numel(area_ratios);
-            size_array_temp = idx_throat;
-            axial_temps_super = zeros(1, size_array_temp);
-            for i_station = 1:(idx_throat - 1)
-                area_ratio = area_ratios(i_station);
-                placeholder_temp_array = double(cea_out.get_Temperatures(Pc = pc * 0.000145038, MR = OF, eps = area_ratio));
-                axial_temps_super(i_station) = placeholder_temp_array(3);
+            
+            % Assume isentropic flow past throat
+            %   specific heat ratio stays constant
+            %   Get area ratio - for now don't investigate, but evidence
+            %   suggests this is common across all dimensions, so just make
+            %   it a scalar to save time and complexity
+            area_ratio = r_nozzle_parabolic(1, 1, 1, 1, 1, 1, end).^2 ./ Rt(1, 1, 1, 1, 1 , 1).^2;
+            
+            % Use area_ratio to get Mach number
+            %   Will have to use Newton Rhapson Mtd
+            tol_low = .0001;
+            syms Mn
+            func_xn = (1 / Mn) * ((2 / (throat_flow_gamma + 1)) * (1 + ((throat_flow_gamma - 1) / 2) * Mn^2))^((throat_flow_gamma + 1) / (2 * (throat_flow_gamma - 1))) - area_ratio;
+            func_prime_xn = diff(func_xn, Mn);
+            % Initial guess is above throat mach
+            M_guess = 1.2;
+            M = M_guess;
+            residual = double(subs(func_xn, Mn, M));
+            while abs(residual) >= tol_low
+                M = M - double(subs(func_xn, Mn, M)) / double(subs(func_prime_xn, Mn, M));
+                residual = double(subs(func_xn, Mn, M));
             end
-            % throat_flow_temp is basically a scalar past the first three
-            %   iterators
-            axial_temps_super(idx_throat) = squeeze(throat_flow_temp(i_pc, i_OF, i_eps, 1));
-            % Get pre-throat/subsonic station temperatures
-            size_array_temp = numels_area_ratio - idx_throat;
+            nozzle_flow_mach = M;
 
-            % Use get_full_cea_output, parse large output string
-            area_ratios_spliced = area_ratios((idx_throat + 1) : end, 1);
-            axial_temps_sub = cea_out.get_full_cea_output(Pc = pc * 0.000145038, MR = OF, eps = area_ratio, subar = area_ratios_spliced, short_output = 1, fac_CR = CR)
+            % Use Mach number to get temperature
+            nozzle_flow_temp = stag_flow_temp ./ (1 + ((throat_flow_gamma - 1) ./ 2) .* nozzle_flow_mach.^2) ;
+            % Should verify it's lower than throat temp- for now, evidence
+            % suggests this, but confirm more robustly later
 
-            % axial_temps = cat(7, axial_temps_super, axial_temps_sub);
+            % Now find chamber narrow temp
+            chamber_narrow_flow_temp = 0;
+
+            % Now combine axial temps into one array - later go back and
+            %   set up this and its components to be stored across all for
+            %   loop iterations instead of just repeatedly overwritten each
+            %   time. For now, just getting the theory down is good
+            axial_temp_array = [chamber_flow_temp, chamber_narrow_flow_temp, squeeze(throat_flow_temp(i_pc, i_OF, i_eps, 1, 1, 1, 1, 1, 1)), nozzle_flow_temp, exit_flow_temp];
 
             % For now, this is just approximated using the throat heat
             %   transfer
