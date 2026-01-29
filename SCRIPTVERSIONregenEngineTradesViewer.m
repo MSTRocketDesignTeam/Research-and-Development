@@ -26,13 +26,13 @@ classdef SCRIPTVERSIONregenEngineTradesViewer < matlab.apps.AppBase
         PreferenceSwitch_13Label       matlab.ui.control.Label
         Lampeta_cstar                  matlab.ui.control.Lamp
         Switcheta_cstar                matlab.ui.control.ToggleSwitch
-        prop_costPanel                 matlab.ui.container.Panel
-        knobprop_cost                  matlab.ui.control.DiscreteKnob
+        prop_cost_ratePanel                 matlab.ui.container.Panel
+        knobprop_cost_rate                  matlab.ui.control.DiscreteKnob
         Priority1highestKnob_12Label   matlab.ui.control.Label
-        PreferenceSwitchprop_cost      matlab.ui.control.Switch
+        PreferenceSwitchprop_cost_rate      matlab.ui.control.Switch
         PreferenceSwitch_12Label       matlab.ui.control.Label
-        Lampprop_cost                  matlab.ui.control.Lamp
-        Switchprop_cost                matlab.ui.control.ToggleSwitch
+        Lampprop_cost_rate                  matlab.ui.control.Lamp
+        Switchprop_cost_rate                matlab.ui.control.ToggleSwitch
         dePanel                        matlab.ui.container.Panel
         knobde                         matlab.ui.control.DiscreteKnob
         Priority1highestKnob_11Label   matlab.ui.control.Label
@@ -619,7 +619,7 @@ classdef SCRIPTVERSIONregenEngineTradesViewer < matlab.apps.AppBase
             
             % Assume file is in same folder
             load("regenEngineTradesData.mat");
-            app.yaxisDropDown.Items = ["thermstress (MPa)", "hoop_stress_doghouse (MPa)", "hoop_stress_fins (MPa)", "total_stress_doghouse (MPa)", "total_stress_fins (MPa)", "vol_engine (mm^3)", "Twg (deg C)", "T_coolant_f (deg C)", "P_coolant_min (psi)", "Isp (s)", "thrust (lbf)", "prop_cost ($)", "dt (in)", "de (in)", "cstar (ft/s)", "eta_cstar (%)", "TWR"];
+            app.yaxisDropDown.Items = ["thermstress (MPa)", "hoop_stress_doghouse (MPa)", "hoop_stress_fins (MPa)", "total_stress_doghouse (MPa)", "total_stress_fins (MPa)", "vol_engine (mm^3)", "Twg (deg C)", "T_coolant_f (deg C)", "P_coolant_min (psi)", "Isp (s)", "thrust (lbf)", "prop_cost_rate ($)", "dt (in)", "de (in)", "cstar (ft/s)", "eta_cstar (%)", "TWR"];
 
             % Still WIP - should probably some day be updated to not be
             %   recalculated every app use
@@ -785,9 +785,9 @@ classdef SCRIPTVERSIONregenEngineTradesViewer < matlab.apps.AppBase
             updateAutoTrade(app, "thrust");
         end
 
-        % Value changed function: PreferenceSwitchprop_cost, knobprop_cost
-        function PreferenceSwitchprop_costValueChanged(app, event)
-            updateAutoTrade(app, "prop_cost");
+        % Value changed function: PreferenceSwitchprop_cost_rate, knobprop_cost_rate
+        function PreferenceSwitchprop_cost_rateValueChanged(app, event)
+            updateAutoTrade(app, "prop_cost_rate");
         end
 
         % Value changed function: PreferenceSwitchdt, knobdt
@@ -1658,51 +1658,51 @@ classdef SCRIPTVERSIONregenEngineTradesViewer < matlab.apps.AppBase
             app.knobde.Position = [55 31 60 60];
             app.knobde.Value = '0';
 
-            % Create prop_costPanel
-            app.prop_costPanel = uipanel(app.AutomateTradeStudyTab);
-            app.prop_costPanel.Title = 'prop_cost';
-            app.prop_costPanel.Position = [203 387 194 197];
+            % Create prop_cost_ratePanel
+            app.prop_cost_ratePanel = uipanel(app.AutomateTradeStudyTab);
+            app.prop_cost_ratePanel.Title = 'prop_cost_rate';
+            app.prop_cost_ratePanel.Position = [203 387 194 197];
 
-            % Create Switchprop_cost
-            app.Switchprop_cost = uiswitch(app.prop_costPanel, 'toggle');
-            app.Switchprop_cost.Items = {'Min', 'Max'};
-            app.Switchprop_cost.ValueChangedFcn = createCallbackFcn(app, @PreferenceSwitchprop_costValueChanged, true);
-            app.Switchprop_cost.Enable = 'off';
-            app.Switchprop_cost.Position = [162 105 20 45];
-            app.Switchprop_cost.Value = 'Min';
+            % Create Switchprop_cost_rate
+            app.Switchprop_cost_rate = uiswitch(app.prop_cost_ratePanel, 'toggle');
+            app.Switchprop_cost_rate.Items = {'Min', 'Max'};
+            app.Switchprop_cost_rate.ValueChangedFcn = createCallbackFcn(app, @PreferenceSwitchprop_cost_rateValueChanged, true);
+            app.Switchprop_cost_rate.Enable = 'off';
+            app.Switchprop_cost_rate.Position = [162 105 20 45];
+            app.Switchprop_cost_rate.Value = 'Min';
 
-            % Create Lampprop_cost
-            app.Lampprop_cost = uilamp(app.prop_costPanel);
-            app.Lampprop_cost.Position = [107 149 20 20];
-            app.Lampprop_cost.Color = [1 0 0];
+            % Create Lampprop_cost_rate
+            app.Lampprop_cost_rate = uilamp(app.prop_cost_ratePanel);
+            app.Lampprop_cost_rate.Position = [107 149 20 20];
+            app.Lampprop_cost_rate.Color = [1 0 0];
 
             % Create PreferenceSwitch_12Label
-            app.PreferenceSwitch_12Label = uilabel(app.prop_costPanel);
+            app.PreferenceSwitch_12Label = uilabel(app.prop_cost_ratePanel);
             app.PreferenceSwitch_12Label.HorizontalAlignment = 'center';
             app.PreferenceSwitch_12Label.Position = [17 123 70 22];
             app.PreferenceSwitch_12Label.Text = 'Preference?';
 
-            % Create PreferenceSwitchprop_cost
-            app.PreferenceSwitchprop_cost = uiswitch(app.prop_costPanel, 'slider');
-            app.PreferenceSwitchprop_cost.Items = {'No', 'Yes'};
-            app.PreferenceSwitchprop_cost.ValueChangedFcn = createCallbackFcn(app, @PreferenceSwitchprop_costValueChanged, true);
-            app.PreferenceSwitchprop_cost.Position = [28 149 45 20];
-            app.PreferenceSwitchprop_cost.Value = 'No';
+            % Create PreferenceSwitchprop_cost_rate
+            app.PreferenceSwitchprop_cost_rate = uiswitch(app.prop_cost_ratePanel, 'slider');
+            app.PreferenceSwitchprop_cost_rate.Items = {'No', 'Yes'};
+            app.PreferenceSwitchprop_cost_rate.ValueChangedFcn = createCallbackFcn(app, @PreferenceSwitchprop_cost_rateValueChanged, true);
+            app.PreferenceSwitchprop_cost_rate.Position = [28 149 45 20];
+            app.PreferenceSwitchprop_cost_rate.Value = 'No';
 
             % Create Priority1highestKnob_12Label
-            app.Priority1highestKnob_12Label = uilabel(app.prop_costPanel);
+            app.Priority1highestKnob_12Label = uilabel(app.prop_cost_ratePanel);
             app.Priority1highestKnob_12Label.HorizontalAlignment = 'center';
             app.Priority1highestKnob_12Label.Enable = 'off';
             app.Priority1highestKnob_12Label.Position = [38 5 102 22];
             app.Priority1highestKnob_12Label.Text = 'Priority (1 highest)';
 
-            % Create knobprop_cost
-            app.knobprop_cost = uiknob(app.prop_costPanel, 'discrete');
-            app.knobprop_cost.Items = {'0', '0'};
-            app.knobprop_cost.ValueChangedFcn = createCallbackFcn(app, @PreferenceSwitchprop_costValueChanged, true);
-            app.knobprop_cost.Enable = 'off';
-            app.knobprop_cost.Position = [55 31 60 60];
-            app.knobprop_cost.Value = '0';
+            % Create knobprop_cost_rate
+            app.knobprop_cost_rate = uiknob(app.prop_cost_ratePanel, 'discrete');
+            app.knobprop_cost_rate.Items = {'0', '0'};
+            app.knobprop_cost_rate.ValueChangedFcn = createCallbackFcn(app, @PreferenceSwitchprop_cost_rateValueChanged, true);
+            app.knobprop_cost_rate.Enable = 'off';
+            app.knobprop_cost_rate.Position = [55 31 60 60];
+            app.knobprop_cost_rate.Value = '0';
 
             % Create eta_cstarPanel
             app.eta_cstarPanel = uipanel(app.AutomateTradeStudyTab);
