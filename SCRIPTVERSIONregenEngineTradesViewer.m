@@ -96,13 +96,13 @@ classdef SCRIPTVERSIONregenEngineTradesViewer < matlab.apps.AppBase
         PreferenceSwitch_3Label        matlab.ui.control.Label
         Lamptotal_stress_doghouse      matlab.ui.control.Lamp
         Switchtotal_stress_doghouse    matlab.ui.control.ToggleSwitch
-        thermstressPanel               matlab.ui.container.Panel
-        knobthermstress                matlab.ui.control.DiscreteKnob
+        therm_stressPanel               matlab.ui.container.Panel
+        knobtherm_stress                matlab.ui.control.DiscreteKnob
         Priority1highestKnobLabel      matlab.ui.control.Label
-        PreferenceSwitchthermstress    matlab.ui.control.Switch
+        PreferenceSwitchtherm_stress    matlab.ui.control.Switch
         PreferenceSwitchLabel          matlab.ui.control.Label
-        Lampthermstress                matlab.ui.control.Lamp
-        Switchthermstress              matlab.ui.control.ToggleSwitch
+        Lamptherm_stress                matlab.ui.control.Lamp
+        Switchtherm_stress              matlab.ui.control.ToggleSwitch
         DataTab                        matlab.ui.container.Tab
         RunningLamp                    matlab.ui.control.Lamp
         RunningLampLabel               matlab.ui.control.Label
@@ -222,7 +222,7 @@ classdef SCRIPTVERSIONregenEngineTradesViewer < matlab.apps.AppBase
                 % Show extra data for some data, like limits or comparable
                 % values
                 switch yaxisname
-                    case "thermstress"
+                    case "therm_stress"
                         if boolextrathermals
                             y_vals(:, 2) = squeeze(yieldstress_max(y_vals_indices{:}));
                             y_vals(:, 3) = squeeze(yieldstress_alloy(y_vals_indices{:}));
@@ -268,7 +268,7 @@ classdef SCRIPTVERSIONregenEngineTradesViewer < matlab.apps.AppBase
 
             % Legend handling for plots with more than one y range
             switch yaxisname
-                case "thermstress"
+                case "therm_stress"
                     if boolextrathermals
                         for i_var = 1:length(list_var_names)
                             var_name = list_var_names(i_var);
@@ -619,7 +619,7 @@ classdef SCRIPTVERSIONregenEngineTradesViewer < matlab.apps.AppBase
             
             % Assume file is in same folder
             load("regenEngineTradesData.mat");
-            app.yaxisDropDown.Items = ["thermstress (MPa)", "hoop_stress_doghouse (MPa)", "hoop_stress_fins (MPa)", "total_stress_doghouse (MPa)", "total_stress_fins (MPa)", "vol_engine (mm^3)", "Twg (deg C)", "T_coolant_f (deg C)", "P_coolant_min (psi)", "Isp (s)", "thrust (lbf)", "prop_cost_rate ($)", "dt (in)", "de (in)", "cstar (ft/s)", "eta_cstar (%)", "TWR"];
+            app.yaxisDropDown.Items = ["therm_stress (MPa)", "hoop_stress_doghouse (MPa)", "hoop_stress_fins (MPa)", "total_stress_doghouse (MPa)", "total_stress_fins (MPa)", "vol_engine (mm^3)", "Twg (deg C)", "T_coolant_f (deg C)", "P_coolant_min (psi)", "Isp (s)", "thrust (lbf)", "prop_cost_rate ($)", "dt (in)", "de (in)", "cstar (ft/s)", "eta_cstar (%)", "TWR"];
 
             % Still WIP - should probably some day be updated to not be
             %   recalculated every app use
@@ -740,10 +740,10 @@ classdef SCRIPTVERSIONregenEngineTradesViewer < matlab.apps.AppBase
             yaxisDropDownValueChanged(app, event);
         end
 
-        % Value changed function: PreferenceSwitchthermstress, 
+        % Value changed function: PreferenceSwitchtherm_stress, 
         % ...and 1 other component
-        function PreferenceSwitchthermstressValueChanged(app, event)
-            updateAutoTrade(app, "thermstress");
+        function PreferenceSwitchtherm_stressValueChanged(app, event)
+            updateAutoTrade(app, "therm_stress");
         end
 
         % Value changed function: PreferenceSwitchhoop_stress_doghouse, 
@@ -1198,51 +1198,51 @@ classdef SCRIPTVERSIONregenEngineTradesViewer < matlab.apps.AppBase
             app.AutomateTradeStudyTab = uitab(app.TabGroupmain);
             app.AutomateTradeStudyTab.Title = 'Automate Trade Study';
 
-            % Create thermstressPanel
-            app.thermstressPanel = uipanel(app.AutomateTradeStudyTab);
-            app.thermstressPanel.Title = 'thermstress';
-            app.thermstressPanel.Position = [5 588 194 197];
+            % Create therm_stressPanel
+            app.therm_stressPanel = uipanel(app.AutomateTradeStudyTab);
+            app.therm_stressPanel.Title = 'therm_stress';
+            app.therm_stressPanel.Position = [5 588 194 197];
 
-            % Create Switchthermstress
-            app.Switchthermstress = uiswitch(app.thermstressPanel, 'toggle');
-            app.Switchthermstress.Items = {'Min', 'Max'};
-            app.Switchthermstress.ValueChangedFcn = createCallbackFcn(app, @PreferenceSwitchthermstressValueChanged, true);
-            app.Switchthermstress.Enable = 'off';
-            app.Switchthermstress.Position = [162 105 20 45];
-            app.Switchthermstress.Value = 'Min';
+            % Create Switchtherm_stress
+            app.Switchtherm_stress = uiswitch(app.therm_stressPanel, 'toggle');
+            app.Switchtherm_stress.Items = {'Min', 'Max'};
+            app.Switchtherm_stress.ValueChangedFcn = createCallbackFcn(app, @PreferenceSwitchtherm_stressValueChanged, true);
+            app.Switchtherm_stress.Enable = 'off';
+            app.Switchtherm_stress.Position = [162 105 20 45];
+            app.Switchtherm_stress.Value = 'Min';
 
-            % Create Lampthermstress
-            app.Lampthermstress = uilamp(app.thermstressPanel);
-            app.Lampthermstress.Position = [107 149 20 20];
-            app.Lampthermstress.Color = [1 0 0];
+            % Create Lamptherm_stress
+            app.Lamptherm_stress = uilamp(app.therm_stressPanel);
+            app.Lamptherm_stress.Position = [107 149 20 20];
+            app.Lamptherm_stress.Color = [1 0 0];
 
             % Create PreferenceSwitchLabel
-            app.PreferenceSwitchLabel = uilabel(app.thermstressPanel);
+            app.PreferenceSwitchLabel = uilabel(app.therm_stressPanel);
             app.PreferenceSwitchLabel.HorizontalAlignment = 'center';
             app.PreferenceSwitchLabel.Position = [17 123 70 22];
             app.PreferenceSwitchLabel.Text = 'Preference?';
 
-            % Create PreferenceSwitchthermstress
-            app.PreferenceSwitchthermstress = uiswitch(app.thermstressPanel, 'slider');
-            app.PreferenceSwitchthermstress.Items = {'No', 'Yes'};
-            app.PreferenceSwitchthermstress.ValueChangedFcn = createCallbackFcn(app, @PreferenceSwitchthermstressValueChanged, true);
-            app.PreferenceSwitchthermstress.Position = [28 149 45 20];
-            app.PreferenceSwitchthermstress.Value = 'No';
+            % Create PreferenceSwitchtherm_stress
+            app.PreferenceSwitchtherm_stress = uiswitch(app.therm_stressPanel, 'slider');
+            app.PreferenceSwitchtherm_stress.Items = {'No', 'Yes'};
+            app.PreferenceSwitchtherm_stress.ValueChangedFcn = createCallbackFcn(app, @PreferenceSwitchtherm_stressValueChanged, true);
+            app.PreferenceSwitchtherm_stress.Position = [28 149 45 20];
+            app.PreferenceSwitchtherm_stress.Value = 'No';
 
             % Create Priority1highestKnobLabel
-            app.Priority1highestKnobLabel = uilabel(app.thermstressPanel);
+            app.Priority1highestKnobLabel = uilabel(app.therm_stressPanel);
             app.Priority1highestKnobLabel.HorizontalAlignment = 'center';
             app.Priority1highestKnobLabel.Enable = 'off';
             app.Priority1highestKnobLabel.Position = [38 5 102 22];
             app.Priority1highestKnobLabel.Text = 'Priority (1 highest)';
 
-            % Create knobthermstress
-            app.knobthermstress = uiknob(app.thermstressPanel, 'discrete');
-            app.knobthermstress.Items = {'0', '0'};
-            app.knobthermstress.ValueChangedFcn = createCallbackFcn(app, @PreferenceSwitchthermstressValueChanged, true);
-            app.knobthermstress.Enable = 'off';
-            app.knobthermstress.Position = [55 31 60 60];
-            app.knobthermstress.Value = '0';
+            % Create knobtherm_stress
+            app.knobtherm_stress = uiknob(app.therm_stressPanel, 'discrete');
+            app.knobtherm_stress.Items = {'0', '0'};
+            app.knobtherm_stress.ValueChangedFcn = createCallbackFcn(app, @PreferenceSwitchtherm_stressValueChanged, true);
+            app.knobtherm_stress.Enable = 'off';
+            app.knobtherm_stress.Position = [55 31 60 60];
+            app.knobtherm_stress.Value = '0';
 
             % Create total_stress_doghousePanel
             app.total_stress_doghousePanel = uipanel(app.AutomateTradeStudyTab);

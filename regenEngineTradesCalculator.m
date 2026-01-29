@@ -72,14 +72,14 @@ numelsnoz = 10;
 numsectionsnoz = 5;
 
 %% Independent, Variable Parameters
-% pc
+% pc                        chamber pressure
 % OF                        O to F ratio
-% expansion_ratio
-% mdot
-% d_channel
-% num_channels
-% T_coolant
-% wallt                     hot-wall thickness
+% expansion_ratio           
+% mdot                      mass flow rate
+% d_channel                 coolant channel diameter
+% num_channels              coolant channel count
+% T_coolant_i               coolant temperature
+% wall_t                    hot-wall thickness
 % k_wall                    wall material thermal conductivity
 
 list_var_names = ["pc";
@@ -89,60 +89,126 @@ list_var_names = ["pc";
                   "d_channel";
                   "num_channels";
                   "T_coolant";
-                  "wallt";
+                  "wall_t";
                   "k_wall"];
 
-%% Some precalcs
-% Applying DF's to hot wall temp
-T_w_max = T_AlSi10Mg_melt ./ DFtemp;
-
-%% Make iteration ranges for independent vars
-stdvarrange = [1];
-% highdefvarrange = linspace(.8, 1.2, 5);
+%% Independent Variable Nominal Values
+std_var_range = [1];
+high_def_var_range = linspace(.8, 1.2, 3);
 % stdvarrange = highdefvarrange;
+
 % psi to Pa
 pc_nom = 128 .* 6894.76;
+
 OF_nom = 1.6;
 expansion_ratio_nom = 1.8;
+
 % lbm/s -> kgm/s
 mdot_nom = .8 .* .45359237;
+
 % mm to m
 d_channel_nom = .8 .* 1E-3;
+
 num_channels_nom = 48;
+
 % convert deg C to K LATER
 T_coolant_nom = 24;
+
 % mm to m
-wallt_nom = .8 ./ 1000;
+wall_t_nom = .8 ./ 1000;
+
 % W/m-K - Largest range I found in the paper: On the thermal conductivity of AlSi10Mg and lattice structures made by laser powder bed fusion Richard R.J. Sélo, Sam Catchpole-Smith, Ian Maskery, Ian Ashcroft, Christopher Tuck
 % k_wall range is from ~98 to ~183
 % k_wall_nom = (98 + 183) / 2;
 k_wall_nom = 112.4;
 
-pc_range = pc_nom .* stdvarrange;
-OF_range = OF_nom .* stdvarrange;
+%% Independent Variable Range Creation
+pc_range = pc_nom .* std_var_range;
+
+OF_range = OF_nom .* std_var_range;
+% OF_range = OF_nom .* highdefvarrange;
 % OF_range = linspace(1.5, 1.7, 5);
-expansion_ratio_range = expansion_ratio_nom .* stdvarrange;
+
+expansion_ratio_range = expansion_ratio_nom .* std_var_range;
 % expansion_ratio_range = linspace(1.8, 2.2, 5);
-mdot_range = mdot_nom .* stdvarrange;
-d_channel_range = d_channel_nom .* stdvarrange;
-num_channels_range = num_channels_nom .* stdvarrange;
-T_coolant_i_range = T_coolant_nom .* stdvarrange;
+
+mdot_range = mdot_nom .* std_var_range;
+
+% d_channel_range = d_channel_nom .* stdvarrange;
+d_channel_range = d_channel_nom .* high_def_var_range;
+
+num_channels_range = num_channels_nom .* std_var_range;
+
+T_coolant_i_range = T_coolant_nom .* std_var_range;
+
 % deg C to K
 T_coolant_i_range = T_coolant_i_range + 273.15;
-wall_t_range = wallt_nom .* stdvarrange;
-k_wall_range = k_wall_nom .* stdvarrange;
-% For sizing resultant nd arrays to be compatible in one data structure -
-% allows for efficient export and reading later
+
+wall_t_range = wall_t_nom .* std_var_range;
+
+k_wall_range = k_wall_nom .* std_var_range;
+
+% For sizing resultant N-D arrays to be compatible in one data structure -
+%   allows for efficient export and data reading later
 ranges = {pc_range, OF_range, expansion_ratio_range, mdot_range, d_channel_range, num_channels_range, T_coolant_i_range, wall_t_range, k_wall_range};
-ndsvar = cellfun(@length, ranges);
+
+% Returns array of each ranges' sizes
+range_lengths = cellfun(@length, ranges);
+
+% Eliminates trailing singleton dimensions in range_lengths
+for i = length(ranges):-1:1
+    if range_lengths(i) == 1
+        range_lengths = range_lengths(1:i-1);
+    else
+        break;
+    end
+end
+
+% range_lengths_to_search = range_lengths(4:end);
+% range_lengths_searched_no_singletons = range_lengths_to_search(range_lengths_to_search > 1);
+% range_lengths_no_singletons = [range_lengths(1:3), range_lengths_searched_no_singletons];
+% range_lengths = range_lengths_no_singletons;
+
+% Resize ranges to be compatibly N-Dimensional, irrespective of sizes of
+%   pc_range, OF_range, or expansion_ratio_range
 [mdot_range, d_channel_range, num_channels_range, T_coolant_i_range, wall_t_range, k_wall_range] = ndgrid(mdot_range, d_channel_range, num_channels_range, T_coolant_i_range, wall_t_range, k_wall_range);
+
+% Get count of non-singleton dimensions excluding the dimensions of
+%   pc_range, OF_range, or expansion_ratio_range
 num_dims_small = ndims(mdot_range);
-% + 3 comes from pc, OF, and expansion_ratio, which are iterated through
-%   via for-loops, and are NOT vectorized like the other indep. vars.
-%   This is because CEA is not vectorizeable, and those are required CEA
-%   inputs
-num_dims_big = num_dims_small + 3;
-% Channels are square
+
+% % Check if they are row vectors- they should be column vectors
+% if size(mdot_range, 1) == 1
+%     mdot_range = mdot_range';
+%     d_channel_range = d_channel_range';
+%     num_channels_range = num_channels_range';
+%     T_coolant_i_range = T_coolant_i_range';
+%     wall_t_range = wall_t_range';
+%     k_wall_range = k_wall_range';
+% end
+
+% Get count of non-singleton dimensions among these ranges:
+%   pc_range,
+%   OF_range,
+%   expansion_ratio_range
+%
+%   Which are iterated through via for-loops, NOT calculated in parallel
+%   via vectorization like other independent variables.
+%   This is because CEA is not vectorizeable, but the above independent
+%   variables are required CEA inputs
+num_dims_big = 0;
+for i = 1:3
+    this_range = ranges{1};
+    if length(this_range) ~= 1
+        num_dims_big = num_dims_big + 1;
+    end
+end
+
+% Must still account for sizes of other ranges besides pc_range, OF_range,
+%   and expansion_ratio_range
+num_dims_big = num_dims_big + num_dims_small;
+
+% Channels are square - this is used for ease of later channel calculations
 fChannelArea = @(d) d.^2;
 A_channel_range = fChannelArea(d_channel_range);
 
@@ -158,37 +224,40 @@ mlr_wgt_eth = .0460684; % kg/mol
 % For liquid ethanol cp(T) info - https://webbook.nist.gov/cgi/cbook.cgi?ID=C64175&Mask=187F
 % From Green J.H.S 1961, found at temp of 298.15 K ->
 % J/mol-K to J/kg-K
-cp_coolant_avg = 111.96 ./ mlr_wgt_eth;
-Tcrit_eth = 514; % K
-Pcrit_eth = 6.14E6; % Pa
-% liquid eth compressibility factor
+cp_eth_avg = 111.96 ./ mlr_wgt_eth;
+T_crit_eth = 514; % K
+P_crit_eth = 6.14E6; % Pa
+% Liquid eth compressibility factor
 Zc_eth = .241;
-Vc_eth = Zc_eth .* R_universal .* Tcrit_eth ./ Pcrit_eth;
+Vc_eth = Zc_eth .* R_universal .* T_crit_eth ./ P_crit_eth;
 rho_crit_eth = 276;
-fTr = @(T, Tcrit) T ./ Tcrit;
-fRackett = @(rho_crit, Zc, T, Tcrit) rho_crit ./ Zc.^(1 - fTr(T, Tcrit));
+fT_r = @(T, T_crit) T ./ T_crit;
+% Uses Rackett equation for density
+fDensity = @(rho_crit, Zc, T, T_crit) rho_crit ./ Zc.^(1 - fT_r(T, T_crit));
 % -------------------------------------------------------------------------
 % For coolant thermal conductivity calcs later - all these functions are
 % just meant to organize the summation expressions and other things from
 % the papers more easily (read the papers)
 % From Assael, M.J., et al., Reference Data for the Thermal Conductivity of Ethanol , J. Phys. Chem. Ref. Data, 2010
-flambda0_eth = @(T) (-2.09575 + 19.9045 .* fTr(T, Tcrit_eth) - 53.964 .* fTr(T, Tcrit_eth).^2 + 82.1223 .* fTr(T, Tcrit_eth).^3 - 1.98864 .* fTr(T, Tcrit_eth).^4 - .495513 .* fTr(T, Tcrit_eth).^5) ./ (.17223 - .078273 .* fTr(T, Tcrit_eth) + fTr(T, Tcrit_eth).^2) .* 10.^-3; % W/m-K
-B1i_eth = [2.67222E-2, 1.48279E-1, -1.30429E-1, 3.46232E-2, -2.44293E-3];
-B2i_eth = [1.77166E-2, -8.93088E-2, 6.84664E-2, -1.45702E-2, 8.09189E-4];
-is_deltalambda = 1:5;
-fRshpSmmtnArrys = @(arry, num_dims_big) reshape(arry, [ones(1, num_dims_big) numel(arry)]);
-B1i_eth = fRshpSmmtnArrys(B1i_eth, num_dims_big);
-B2i_eth = fRshpSmmtnArrys(B2i_eth, num_dims_big);
-is_deltalambda = fRshpSmmtnArrys(is_deltalambda, num_dims_big);
+flambda0eth = @(T) (-2.09575 + 19.9045 .* fT_r(T, T_crit_eth) - 53.964 .* fT_r(T, T_crit_eth).^2 + 82.1223 .* fT_r(T, T_crit_eth).^3 - 1.98864 .* fT_r(T, T_crit_eth).^4 - .495513 .* fT_r(T, T_crit_eth).^5) ./ (.17223 - .078273 .* fT_r(T, T_crit_eth) + fT_r(T, T_crit_eth).^2) .* 10.^-3; % W/m-K
+B1_i_eth = [2.67222E-2, 1.48279E-1, -1.30429E-1, 3.46232E-2, -2.44293E-3];
+B2_i_eth = [1.77166E-2, -8.93088E-2, 6.84664E-2, -1.45702E-2, 8.09189E-4];
+is_delta_lambda = 1:5;
+% Reshape summation arrays for vector size compatibility during
+%   parallelization
+fRshpSmmtnArrys = @(arry, num_dims) reshape(arry, [ones(1, num_dims) numel(arry)]);
+B1_i_eth = fRshpSmmtnArrys(B1_i_eth, num_dims_big);
+B2_i_eth = fRshpSmmtnArrys(B2_i_eth, num_dims_big);
+is_delta_lambda = fRshpSmmtnArrys(is_delta_lambda, num_dims_big);
 frho_r = @(rho, rho_crit) rho ./ rho_crit;
-fdeltalambda_eth = @(rho, T) sum((B1i_eth + B2i_eth .* fTr(T, Tcrit_eth)) .* (frho_r(rho, rho_crit_eth)).^is_deltalambda, num_dims_big + 1);
-fdeltalambdac_eth = @(rho, T) 1.7E-3 ./ (7E-2 + abs(fTr(T, Tcrit_eth) - 1)) .* exp(-(1.7 .* (frho_r(rho, rho_crit_eth) - 1)).^2);
-fk_eth = @(rho, T) flambda0_eth(T) + fdeltalambda_eth(rho, T) + fdeltalambdac_eth(rho, T); % inputs: T in K, rho in kg/m^3; output in W/m-K
+fdeltalambda_eth = @(rho, T) sum((B1_i_eth + B2_i_eth .* fT_r(T, T_crit_eth)) .* (frho_r(rho, rho_crit_eth)).^is_delta_lambda, num_dims_big + 1);
+fdeltalambdac_eth = @(rho, T) 1.7E-3 ./ (7E-2 + abs(fT_r(T, T_crit_eth) - 1)) .* exp(-(1.7 .* (frho_r(rho, rho_crit_eth) - 1)).^2);
+fk_eth = @(rho, T) flambda0eth(T) + fdeltalambda_eth(rho, T) + fdeltalambdac_eth(rho, T); % inputs: T in K, rho in kg/m^3; output in W/m-K
 % k_coolant sanity check
-T_exp1 = 300;
-rho_exp1 = 850;
-k_exp1_act = 209.68E-3;
-k_exp1_calc = fk_eth(rho_exp1, T_exp1);
+T_exp_1 = 300;
+rho_exp_1 = 850;
+k_exp_1_act = 209.68E-3;
+k_exp_1_calc = fk_eth(rho_exp_1, T_exp_1);
 % -------------------------------------------------------------------------
 % For coolant viscosity calcs - read the paper
 % From Sotiriadou, S., Ntonti, E., Velliadou, D., Antoniadis, K. D., Assael, M. J., & Huber, M. L. (2023). Reference Correlation for the Viscosity of Ethanol from the Triple Point to 620 K and Pressures Up to 102 MPa
@@ -200,7 +269,7 @@ bi_eth = fRshpSmmtnArrys(bi_eth, num_dims_big);
 ci_eth = fRshpSmmtnArrys(ci_eth, num_dims_big);
 is_eta0b = fRshpSmmtnArrys(is_eta0b, num_dims_big);
 is_eta0c = fRshpSmmtnArrys(is_eta0c, num_dims_big);
-feta0_eth = @(T) sum(bi_eth .* fTr(T, Tcrit_eth).^is_eta0b, num_dims_big + 1) ./ sum(ci_eth .* fTr(T, Tcrit_eth).^is_eta0c, num_dims_big + 1);
+feta0_eth = @(T) sum(bi_eth .* fT_r(T, T_crit_eth).^is_eta0b, num_dims_big + 1) ./ sum(ci_eth .* fT_r(T, T_crit_eth).^is_eta0c, num_dims_big + 1);
 epsilon_k_B_eth = 265;
 fTstar = @(T, epsilon_k_B) T ./ epsilon_k_B;
 di = [-1.9572881E1, 2.1973999E2, -1.0153226E3, 2.4710125E3, -3.3751717E3, 2.4916597E3, -7.8726086E2];
@@ -215,48 +284,48 @@ NA = 6.02214076E23;
 sigma_eth = .479E-9;
 fB_eta_eth = @(T) Bstar_eta_eth(fTstar(T, epsilon_k_B_eth)) .* NA .* sigma_eth.^3 ./ mlr_wgt_eth;
 feta1_eth = @(T) feta0_eth(T) .* fB_eta_eth(T);
-fdeltaeta_eth = @(rho, T) frho_r(rho, rho_crit_eth).^(2./3) .* fTr(T, Tcrit_eth).^.5 .* (8.32575272 .* frho_r(rho, rho_crit_eth) + 9.66535242E-2 .* (frho_r(rho, rho_crit_eth).^8 ./ (fTr(T, Tcrit_eth).^4 .* (1 + frho_r(rho, rho_crit_eth).^2) - fTr(T, Tcrit_eth).^2)));
+fdeltaeta_eth = @(rho, T) frho_r(rho, rho_crit_eth).^(2./3) .* fT_r(T, T_crit_eth).^.5 .* (8.32575272 .* frho_r(rho, rho_crit_eth) + 9.66535242E-2 .* (frho_r(rho, rho_crit_eth).^8 ./ (fT_r(T, T_crit_eth).^4 .* (1 + frho_r(rho, rho_crit_eth).^2) - fT_r(T, T_crit_eth).^2)));
 fmu_eth = @(T, rho) (feta0_eth(T) + feta1_eth(T) .* rho + fdeltaeta_eth(rho, T)) .* 10.^-6; % inputs: T in K, rho in kg/m^3; output in Pa-s
 % mu_coolant sanity check
-T_exp1 = 300;
-rho_exp1 = 10;
-mu_exp1_act = 8.9382E-6;
-mu_exp1_calc = fmu_eth(T_exp1, rho_exp1);
+T_exp_1 = 300;
+rho_exp_1 = 10;
+mu_exp_1_act = 8.9382E-6;
+mu_exp_1_calc = fmu_eth(T_exp_1, rho_exp_1);
 
 % Results of interest, things to graph in the app
-thermstress = zeros(ndsvar);
-T_coolant_f = zeros(ndsvar);
-Twg = zeros(ndsvar);
-yieldstress_alloy = zeros(ndsvar);
-Twl = zeros(ndsvar);
-q = zeros(ndsvar);
-Isp = zeros(ndsvar);
-prop_cost_rate = zeros(ndsvar);
-At = zeros(ndsvar);
-cstar = zeros(ndsvar);
-cstar_theo = zeros(ndsvar);
-thrust = zeros(ndsvar);
-Ae = zeros(ndsvar);
-eta_cstar = zeros(ndsvar);
-throat_flow_temp = zeros(ndsvar);
-Vc = zeros(ndsvar);
-flow_sonic = zeros(ndsvar);
-vol_engine = zeros(ndsvar);
-r_engine = zeros([ndsvar, numelsnoz .* numsectionsnoz]);
-z_engine = zeros([ndsvar, numelsnoz .* numsectionsnoz]);
-L_nozzle_parabolic = zeros(ndsvar);
-Re = zeros(ndsvar);
-thetaN = zeros(ndsvar);
-xN = zeros(ndsvar);
-R1 = zeros(ndsvar);
-R1p = zeros(ndsvar);
-alpha = zeros(ndsvar);
-L_chamber_circular_narrow = zeros(ndsvar);
-Rc = zeros(ndsvar);
-L_chamber_linear = zeros(ndsvar);
-TWR = zeros(ndsvar);
-hoop_stress_doghouse = zeros(ndsvar);
-hoop_stress_fins = zeros(ndsvar);
+therm_stress = zeros(range_lengths);
+T_coolant_f = zeros(range_lengths);
+Twg = zeros(range_lengths);
+yieldstress_alloy = zeros(range_lengths);
+Twl = zeros(range_lengths);
+q = zeros(range_lengths);
+Isp = zeros(range_lengths);
+prop_cost_rate = zeros(range_lengths);
+At = zeros(range_lengths);
+cstar = zeros(range_lengths);
+cstar_theo = zeros(range_lengths);
+thrust = zeros(range_lengths);
+Ae = zeros(range_lengths);
+eta_cstar = zeros(range_lengths);
+throat_flow_temp = zeros(range_lengths);
+Vc = zeros(range_lengths);
+flow_sonic = zeros(range_lengths);
+vol_engine = zeros(range_lengths);
+r_engine = zeros([range_lengths, numelsnoz .* numsectionsnoz]);
+z_engine = zeros([range_lengths, numelsnoz .* numsectionsnoz]);
+L_nozzle_parabolic = zeros(range_lengths);
+Re = zeros(range_lengths);
+thetaN = zeros(range_lengths);
+xN = zeros(range_lengths);
+R1 = zeros(range_lengths);
+R1p = zeros(range_lengths);
+alpha = zeros(range_lengths);
+L_chamber_circular_narrow = zeros(range_lengths);
+Rc = zeros(range_lengths);
+L_chamber_linear = zeros(range_lengths);
+TWR = zeros(range_lengths);
+hoop_stress_doghouse = zeros(range_lengths);
+hoop_stress_fins = zeros(range_lengths);
 
 
 %% Begin calcs
@@ -364,7 +433,7 @@ for i_pc = 1:length(pc_range)
             % Remember it's just fuel in channels
             mdot_channel = mdot_range .* (1 ./ (1 + OF)) ./ num_channels_range;
             % rackett equation used to calc coolant density
-            rho_coolant = fRackett(rho_crit_eth, Zc_eth, T_coolant_i_range, Tcrit_eth);
+            rho_coolant = fDensity(rho_crit_eth, Zc_eth, T_coolant_i_range, T_crit_eth);
             k_coolant = fk_eth(rho_coolant, T_coolant_i_range);
             mu_coolant = fmu_eth(T_coolant_i_range, rho_coolant);
             fluid_vel = mdot_channel ./ A_channel_range ./ rho_coolant;
@@ -378,14 +447,14 @@ for i_pc = 1:length(pc_range)
             dt = sqrt(squeeze(At(i_pc, i_OF, i_eps, :, :, :, :, :, :)) .* 4 ./ pi);
             Ret = throat_flow_density .* squeeze(flow_vel(i_pc, i_OF, i_eps, :, :, :, :, :, :)) .* dt ./ mu_flow;
             Re_coolant = dH_channels .* fluid_vel .* rho_coolant ./ mu_coolant;
-            Pr_coolant = cp_coolant_avg .* mu_coolant ./ k_coolant;
+            Pr_coolant = cp_eth_avg .* mu_coolant ./ k_coolant;
             % Exponent on Pr_coolant is .4 bc fluid is being heated - https://www.sciencedirect.com/topics/engineering/dittus-boelter-correlation?
             NU_coolant = .023 .* Re_coolant.^.8 .* Pr_coolant.^.4;
             hl_laminar_mask = Re_coolant <= 2300;
             hl_turbulent_mask = ~hl_laminar_mask;
             hl = zeros(size(mdot_channel));
             % only valid for laminar
-            hl(hl_laminar_mask) = .023 .* cp_coolant_avg .* mdot_channel(hl_laminar_mask) ./ A_channel_range(hl_laminar_mask) .* Re_coolant(hl_laminar_mask).^-.2 .* (mu_coolant(hl_laminar_mask) .* cp_coolant_avg ./ k_coolant(hl_laminar_mask)).^(-2./3);
+            hl(hl_laminar_mask) = .023 .* cp_eth_avg .* mdot_channel(hl_laminar_mask) ./ A_channel_range(hl_laminar_mask) .* Re_coolant(hl_laminar_mask).^-.2 .* (mu_coolant(hl_laminar_mask) .* cp_eth_avg ./ k_coolant(hl_laminar_mask)).^(-2./3);
             % Dittus Boelter correlation, used with caution from Re = 2300 to Re = 10k, above 10k it's pretty good
             hl(hl_turbulent_mask) = NU_coolant(hl_turbulent_mask) .* k_coolant(hl_turbulent_mask) ./ dH_channels(hl_turbulent_mask);
             hg = .023 .* (throat_flow_density .* squeeze(flow_vel(i_pc, i_OF, i_eps, :, :, :, :, :, :))).^.8 ./ dt.^.2 .* Pr_flow.^.4 .* k_flow ./ mu_flow.^.8;
@@ -627,7 +696,7 @@ for i_pc = 1:length(pc_range)
             % For now, this is just approximated using the throat heat
             %   transfer
             % delta T of coolant just at throat cross section
-            deltaT_coolantslice = squeeze(q(i_pc, i_OF, i_eps, :, :, :, :, :, :)) .* d_channel_range ./ mdot_channel ./ cp_coolant_avg;
+            deltaT_coolantslice = squeeze(q(i_pc, i_OF, i_eps, :, :, :, :, :, :)) .* d_channel_range ./ mdot_channel ./ cp_eth_avg;
             % assume at worst, it's that much at EVERY cross section
             % per-channel delta T
             l_channel = 2 .* max(squeeze(z_engine(i_pc, i_OF, i_eps, :, :, :, :, :, :, :)), [], 7);
@@ -647,11 +716,11 @@ for i_pc = 1:length(pc_range)
 end
 % min coolant press to prevent it boiling in the channels (w/in DF)
 P_coolant_min = fpvapeth(T_coolant_f) ./ DFcoolantpress;
-thermstress(:, :, :, :, :, :, :, :, :) = E_alloy .* alpha_alloy .* (Twg - Twl);
+therm_stress(:, :, :, :, :, :, :, :, :) = E_alloy .* alpha_alloy .* (Twg - Twl);
 
 % Get runtime diagnostics
 runtime = toc(runtime)
-num_engines = prod(ndsvar)
+num_engines = prod(range_lengths)
 timeperengine = runtime / num_engines
 
 % Haven't finished doing all the unit conversions yet for imperial system
@@ -659,7 +728,7 @@ timeperengine = runtime / num_engines
 % constants
 % K to deg C
 T_AlSi10Mg_melt = T_AlSi10Mg_melt - 273.15;
-T_w_max = T_w_max - 273.15;
+T_w_max = T_AlSi10Mg_melt ./ DFtemp;
 % Already in MPa
 yieldstress_max = yieldstress_alloy ./ DFstress;
 % independent vars
@@ -695,11 +764,11 @@ P_coolant_min = P_coolant_min .* .000145038;
 % dimensionless to %
 eta_cstar = eta_cstar .* 100;
 % Pa to MPa
-thermstress = thermstress ./ 10.^6;
+therm_stress = therm_stress ./ 10.^6;
 hoop_stress_doghouse = hoop_stress_doghouse ./ 10.^6;
 hoop_stress_fins = hoop_stress_fins ./ 10.^6;
-total_stress_doghouse = thermstress + hoop_stress_doghouse;
-total_stress_fins = thermstress + hoop_stress_fins;
+total_stress_doghouse = therm_stress + hoop_stress_doghouse;
+total_stress_fins = therm_stress + hoop_stress_fins;
 % Engine volume and contour info
 % m to mm
 r_engine = r_engine .* 10.^3;
@@ -710,7 +779,7 @@ vol_engine = vol_engine .* 10.^9;
 contourvalnames = ["vol_engine", "L_nozzle_parabolic", "Re", "thetaN", "xN", "R1", "R1p", "alpha", "L_chamber_circular_narrow", "Rc", "L_chamber_linear", "dt"];
 
 % Export to mat file for use in app
-save(filename_datastorage, "T_AlSi10Mg_melt", "T_w_max", "yieldstress_alloy", "yieldstress_max", "list_var_names", "ranges", "pc_range", "OF_range", "expansion_ratio_range", "mdot_range", "d_channel_range", "num_channels_range", "T_coolant_i_range", "wall_t_range", "k_wall_range", "thermstress", "total_stress_doghouse", "total_stress_fins", "hoop_stress_doghouse", "hoop_stress_fins", "T_coolant_f", "P_coolant_min", "Twg", "Twl", "q", "Isp", "prop_cost_rate", "dt", "cstar", "cstar_theo", "thrust", "de", "eta_cstar", "Vc", "CR", "flow_sonic", "r_engine", "z_engine", "vol_engine", "L_nozzle_parabolic", "Re", "thetaN", "xN", "R1", "R1p", "alpha", "L_chamber_circular_narrow", "Rc", "L_chamber_linear", "contourvalnames", "TWR");
+save(filename_datastorage, "T_AlSi10Mg_melt", "T_w_max", "yieldstress_alloy", "yieldstress_max", "list_var_names", "ranges", "pc_range", "OF_range", "expansion_ratio_range", "mdot_range", "d_channel_range", "num_channels_range", "T_coolant_i_range", "wall_t_range", "k_wall_range", "therm_stress", "total_stress_doghouse", "total_stress_fins", "hoop_stress_doghouse", "hoop_stress_fins", "T_coolant_f", "P_coolant_min", "Twg", "Twl", "q", "Isp", "prop_cost_rate", "dt", "cstar", "cstar_theo", "thrust", "de", "eta_cstar", "Vc", "CR", "flow_sonic", "r_engine", "z_engine", "vol_engine", "L_nozzle_parabolic", "Re", "thetaN", "xN", "R1", "R1p", "alpha", "L_chamber_circular_narrow", "Rc", "L_chamber_linear", "contourvalnames", "TWR");
 
 
 %% More complex functions
@@ -784,3 +853,16 @@ function yieldStress = getYieldStress(temp)
                 65];
     yieldStress = interp1(temps, stresses, temp);
 end
+
+% function fx
+%     reshape(A, [size(A, N+1), size(A, (N+2):max(N+2, ndims(A)))])
+% 
+%     % Slicing creates 3 leading singleton dimensions; psqueeze(..., 3) removes them
+%     sonic_slice = psqueeze(flow_sonic(i_pc, i_OF, i_eps, :, :, :, :, :, :), 3);
+% 
+%     % Perform your parallel math (dimensions 4-9 are preserved exactly)
+%     result = mdot_range ./ sonic_slice ./ throat_flow_density;
+% 
+%     % Assign back using (:) to bypass shape-matching headaches
+%     At(i_pc, i_OF, i_eps, :, :, :, :, :, :) = result(:);
+% end
