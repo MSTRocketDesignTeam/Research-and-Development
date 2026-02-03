@@ -51,7 +51,7 @@ pa = fPAtAlt(alt);
 
 % RDT technically has no DF for these
 DFstress = 2;
-DFtemp = 1.2;
+DFtemp = 1.5;
 DFcoolantpress = 1.2;
 % g/cc to kg/m^3
 densalloy = 2.665 .* 10.^-3;
@@ -60,8 +60,8 @@ T_AlSi10Mg_melt = 570 + 273.15;
 % USD/lbm to USD/kgm
 cost_nit = 6 .* 2.20462;
 cost_eth = .46 .* 2.20462;
-% MPa to Pa (75 +- 10) - heat treated would be 80, 70 +- 10
-E_alloy = 85E9;
+% GPa to Pa - From MetalFab (Ben's compiled material property data table)
+E_alloy = 68E9;
 % From data sheet: https://www.eos.info/var/assets/03_system-related-assets/material-related-contents/metal-materials-and-examples/metal-material-datasheet/aluminium/material_datasheet_eos_aluminium-alsi10mg_en_web.pdf
 % Took most conservative/highest estimate
 % K^-1
@@ -93,7 +93,7 @@ list_var_names = ["pc";
                   "k_wall"];
 
 %% Independent Variable Nominal Values
-std_var_range = [1];
+std_var_range = [1, 1.1];
 high_def_var_range = linspace(.8, 1.2, 3);
 % stdvarrange = highdefvarrange;
 
@@ -625,9 +625,14 @@ for i_pc = 1:length(pc_range)
             r_chamber_circular_narrow = a .* z_chamber_circular_narrow.^2 + b .* z_chamber_circular_narrow;
 
             % r and z should already be in the proper orientation, so just
-            % shift r out and z out
+            %   shift r out and z out
             z_chamber_circular_narrow = z_chamber_circular_narrow + z_chamber_circular_widen(:, :, :, :, :, :, end);
             r_chamber_circular_narrow = r_chamber_circular_narrow + r_chamber_circular_widen(:, :, :, :, :, :, end);
+
+            % Adjust z and r arrays for nozzle_parabolic so elements are in
+            %   right order but are still synced
+            z_nozzle_parabolic = flip(z_nozzle_parabolic, num_dims_small + 1);
+            r_nozzle_parabolic = flip(r_nozzle_parabolic, num_dims_small + 1);
 
             %% Chamber linear
 
@@ -658,40 +663,84 @@ for i_pc = 1:length(pc_range)
             z_engine(i_pc, i_OF, i_eps, :, :, :, :, :, :, :) = cat(7, z_nozzle_parabolic, z_nozzle_circular, z_chamber_circular_widen, z_chamber_circular_narrow, z_chamber_linear);
             vol_engine(i_pc, i_OF, i_eps, :, :, :, :, :, :) = pi .* sum((squeeze(r_engine(i_pc, i_OF, i_eps, :, :, :, :, :, :, :)) + 3 .* wall_t_range).^2 - squeeze(r_engine(i_pc, i_OF, i_eps, :, :, :, :, :, :, :)).^2 - num_channels_range .* d_channel_range.^2, 7);
             
-            % Axial temperature
+            % Axial temperature gradient
+            %   Get temps here:
+            % --------------------
+            % Chamber
+            % Chamber parab -> Chamber circ
+            % Throat
+            % Nozzle circ -> Nozzle parab
+            % Exit
+
+            axial_temp_grad = [squeeze(z_engine(i_pc, i_OF, i_eps, 1, 1, 1, 1, 1, 1, :))'; zeros(1, length(z_engine(i_pc, i_OF, i_eps, 1, 1, 1, 1, 1, 1, :)))];
             area_ratios = squeeze(r_engine(i_pc, i_OF, i_eps, :, :, :, :, :, :, :)).^2 ./ Rt.^2;
+
             % area_ratios is the same for every for-loop iteration varying
             %   across expansion_ratio_range
-            area_ratios = squeeze(area_ratios(1, 1, 1, 1, 1, 1, :));
-            idx_throat = 20; % Where the end of r_chamber_circular_narrow is in r_engine, because r_chamber_circular_narrow actually progresses correctly- forwards
+            % For now don't investigate, but evidence
+            %   suggests this is common across all dimensions, so just make
+            %   it a scalar to save time and complexity
+            area_ratios = squeeze(area_ratios(1, 1, 1, 1, 1, 1, :))';
+
             chamber_flow_mach = cea_out.get_Chamber_MachNumber(Pc = pc * 0.000145038, MR = OF, fac_CR = CR);
             chamber_flow_props = double(cea_out.get_Chamber_MolWt_gamma(Pc = pc * 0.000145038, MR = OF, eps = expansion_ratio));
             chamber_flow_gamma = chamber_flow_props(2);
+
             % Rearranged stagnation temp equation with knowns at chamber
             stag_flow_temp = chamber_flow_temp ./ (1 + (chamber_flow_gamma - 1) ./ 2 .* chamber_flow_mach.^2).^-1;
-            % Can get some axial temps from get_Temperatures by CEA
-            %   (post-throat/supersonic)
-            % size_super = )
-            % area_ratios is 1D array
-            numels_area_ratio = numel(area_ratios);
-            size_array_temp = idx_throat;
-            axial_temps_super = zeros(1, size_array_temp);
-            for i_station = 1:(idx_throat - 1)
-                area_ratio = area_ratios(i_station);
-                placeholder_temp_array = double(cea_out.get_Temperatures(Pc = pc * 0.000145038, MR = OF, eps = area_ratio));
-                axial_temps_super(i_station) = placeholder_temp_array(3);
+            
+            % Assume isentropic flow
+
+            % Use area_ratios to get Mach number
+            %   Will have to use Newton Rhapson Mtd
+            tol_low = .0001;
+            syms Mn
+            bool_subsonic = 1;
+
+            % M term not present because M is 1
+            temp_mach_constant = squeeze(throat_flow_temp(i_pc, i_OF, i_eps, 1, 1, 1, 1, 1, 1)) * (1 + (throat_flow_gamma - 1) / 2);
+            fTemperatureOfMach = @(M, gamma) temp_mach_constant / (1 + (gamma - 1) / 2 * M^2);
+
+            for i_AR = length(area_ratios):-1:1
+                area_ratio = area_ratios(i_AR);
+                
+                % Gamma and M guesser
+                % Checks if still in subsonic region
+                if bool_subsonic % Still in chamber region
+                    % Checks if throat has been reached yet
+                    if abs(area_ratio - 1) <= tol_low % Throat reached, switch to using throat value
+                        bool_subsonic = 0;
+                        gamma_guess = throat_flow_gamma;
+                        M_guess = 1;
+                    else % Throat not reached, keep using chamber value
+                        gamma_guess = chamber_flow_gamma;
+                        M_guess = .01;
+                    end
+                else % In supersonic region, use throat value
+                    gamma_guess = throat_flow_gamma;
+
+                    % Checks if M_guess should be 1 or 1.2
+                    if abs(area_ratio - 1) <= tol_low
+                        M_guess = 1;
+                    else
+                        M_guess = 1.2;
+                    end
+                end
+
+                func_xn = (1 / Mn) * ((2 / (gamma_guess + 1)) * (1 + ((gamma_guess - 1) / 2) * Mn^2))^((gamma_guess + 1) / (2 * (gamma_guess - 1))) - area_ratio;
+                func_prime_xn = diff(func_xn, Mn);
+
+                M = M_guess;
+                residual = double(subs(func_xn, Mn, M));
+                while abs(residual) >= tol_low
+                    M = M - double(subs(func_xn, Mn, M)) / double(subs(func_prime_xn, Mn, M));
+                    residual = double(subs(func_xn, Mn, M));
+                end
+
+                % For debugging
+                % fprintf("M is %f\n", M);
+                axial_temp_grad(2, i_AR) = fTemperatureOfMach(M, gamma_guess);
             end
-            % throat_flow_temp is basically a scalar past the first three
-            %   iterators
-            axial_temps_super(idx_throat) = squeeze(throat_flow_temp(i_pc, i_OF, i_eps, 1));
-            % Get pre-throat/subsonic station temperatures
-            size_array_temp = numels_area_ratio - idx_throat;
-            axial_temps_sub = zeros(1, size_array_temp);
-            for i_station = 1:numels_area_ratio
-                % Use get_full_cea_output, parse large output string
-                % axial_temps_sub = cea_out.get_full_cea_output()
-            end
-            axial_temps = cat(2, axial_temps_super, axial_temps_sub);
 
             % For now, this is just approximated using the throat heat
             %   transfer
@@ -749,6 +798,7 @@ ranges{8} = ranges{8} .* 10.^3;
 T_coolant_f = T_coolant_f - 273.15;
 Twg = Twg - 273.15;
 Twl = Twl - 273.15;
+axial_temp_grad(2, :) = axial_temp_grad(2, :) - 273.15;
 % m to in
 dt = sqrt(At ./ pi .* 4) .* 39.3701;
 de = sqrt(Ae ./ pi .* 4) .* 39.3701;
@@ -779,7 +829,7 @@ vol_engine = vol_engine .* 10.^9;
 contourvalnames = ["vol_engine", "L_nozzle_parabolic", "Re", "thetaN", "xN", "R1", "R1p", "alpha", "L_chamber_circular_narrow", "Rc", "L_chamber_linear", "dt"];
 
 % Export to mat file for use in app
-save(filename_datastorage, "T_AlSi10Mg_melt", "T_w_max", "yieldstress_alloy", "yieldstress_max", "list_var_names", "ranges", "pc_range", "OF_range", "expansion_ratio_range", "mdot_range", "d_channel_range", "num_channels_range", "T_coolant_i_range", "wall_t_range", "k_wall_range", "therm_stress", "total_stress_doghouse", "total_stress_fins", "hoop_stress_doghouse", "hoop_stress_fins", "T_coolant_f", "P_coolant_min", "Twg", "Twl", "q", "Isp", "prop_cost_rate", "dt", "cstar", "cstar_theo", "thrust", "de", "eta_cstar", "Vc", "CR", "flow_sonic", "r_engine", "z_engine", "vol_engine", "L_nozzle_parabolic", "Re", "thetaN", "xN", "R1", "R1p", "alpha", "L_chamber_circular_narrow", "Rc", "L_chamber_linear", "contourvalnames", "TWR");
+save(filename_datastorage, "axial_temp_grad", "T_AlSi10Mg_melt", "T_w_max", "yieldstress_alloy", "yieldstress_max", "list_var_names", "ranges", "pc_range", "OF_range", "expansion_ratio_range", "mdot_range", "d_channel_range", "num_channels_range", "T_coolant_i_range", "wall_t_range", "k_wall_range", "therm_stress", "total_stress_doghouse", "total_stress_fins", "hoop_stress_doghouse", "hoop_stress_fins", "T_coolant_f", "P_coolant_min", "Twg", "Twl", "q", "Isp", "prop_cost_rate", "dt", "cstar", "cstar_theo", "thrust", "de", "eta_cstar", "Vc", "CR", "flow_sonic", "r_engine", "z_engine", "vol_engine", "L_nozzle_parabolic", "Re", "thetaN", "xN", "R1", "R1p", "alpha", "L_chamber_circular_narrow", "Rc", "L_chamber_linear", "contourvalnames", "TWR");
 
 
 %% More complex functions
@@ -854,6 +904,8 @@ function yieldStress = getYieldStress(temp)
     yieldStress = interp1(temps, stresses, temp);
 end
 
+% For making the code able to be run as both a scalar calculator AND a
+%   vectorized, parallelized monster
 % function fx
 %     reshape(A, [size(A, N+1), size(A, (N+2):max(N+2, ndims(A)))])
 % 

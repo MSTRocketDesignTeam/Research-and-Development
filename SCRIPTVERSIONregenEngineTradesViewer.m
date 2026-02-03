@@ -134,8 +134,8 @@ classdef SCRIPTVERSIONregenEngineTradesViewer < matlab.apps.AppBase
         Slidernum_channels             matlab.ui.control.Slider
         Sliderk_wall                   matlab.ui.control.Slider
         k_wallWmKLabel                 matlab.ui.control.Label
-        Sliderwallt                    matlab.ui.control.Slider
-        wallthicknessmmSliderLabel     matlab.ui.control.Label
+        Sliderwall_t                    matlab.ui.control.Slider
+        wall_thicknessmmSliderLabel     matlab.ui.control.Label
         Slidermdot                     matlab.ui.control.Slider
         dtmmLabel                      matlab.ui.control.Label
         SliderT_coolant                matlab.ui.control.Slider
@@ -157,7 +157,7 @@ classdef SCRIPTVERSIONregenEngineTradesViewer < matlab.apps.AppBase
         UIAxesexpansion_ratio          matlab.ui.control.UIAxes
         UIAxesT_coolant                matlab.ui.control.UIAxes
         UIAxesmdot                     matlab.ui.control.UIAxes
-        UIAxeswallt                    matlab.ui.control.UIAxes
+        UIAxeswall_t                    matlab.ui.control.UIAxes
         UIAxesk_wall                   matlab.ui.control.UIAxes
         ShowthermallimitsButton        matlab.ui.control.StateButton
         TabGroup                       matlab.ui.container.TabGroup
@@ -194,6 +194,7 @@ classdef SCRIPTVERSIONregenEngineTradesViewer < matlab.apps.AppBase
             % Go through every graph
             for i_var = 1:length(list_var_names)
                 var_name = list_var_names(i_var);
+                app.("UIAxes" + var_name).ColorOrder = [0, 0, 1; 1, 0.8, 0; 1, 0, 0];
                 y_vals = eval(yaxisname);
 
                 y_vals_indices = ones(1, length(list_var_names));
@@ -210,7 +211,11 @@ classdef SCRIPTVERSIONregenEngineTradesViewer < matlab.apps.AppBase
                 y_vals_indices{i_var} = 1:length(ranges{i_var});
 
                 % Grab the slice of the data those indices point to
-                y_vals = squeeze(y_vals(y_vals_indices{:}));
+                if ~strcmp(yaxisname, "axial_temp_grad")
+                    y_vals = squeeze(y_vals(y_vals_indices{:}));
+                else
+                    y_vals = axial_temp_grad;
+                end
                 % Fixes weird MATLAB quirk where when squeezing everything
                 %   but the second dimension of an ndarray, the resultant
                 %   is a row vector. But, I want col vectors for the
@@ -259,7 +264,12 @@ classdef SCRIPTVERSIONregenEngineTradesViewer < matlab.apps.AppBase
                         % end
                 end
                 try
-                    plot(eval("app.UIAxes" + var_name), ranges{i_var}, y_vals);
+                    if ~strcmp(yaxisname, "axial_temp_grad")
+                        plot(eval("app.UIAxes" + var_name), ranges{i_var}, y_vals);
+                    else
+                        plot(eval("app.UIAxes" + var_name), axial_temp_grad(1, :), axial_temp_grad(2, :));
+                    end
+
                     legend(eval("app.UIAxes" + var_name), "off");
                 catch
                     error("Couldn't plot, likely problem with y_vals");
@@ -360,7 +370,7 @@ classdef SCRIPTVERSIONregenEngineTradesViewer < matlab.apps.AppBase
 
             %% Now show throat view
             num_channels = app.Slidernum_channels.Value;
-            wallt = app.Sliderwallt.Value;
+            wall_t = app.Sliderwall_t.Value;
             
             cla(app.UIAxesview_of_throat);
             hold(app.UIAxesview_of_throat, "on");
@@ -401,7 +411,7 @@ classdef SCRIPTVERSIONregenEngineTradesViewer < matlab.apps.AppBase
                 ang = (k-1) * 2*pi/num_channels;
         
                 % Distance from origin to base of the shape
-                r_place = R + wallt;
+                r_place = R + wall_t;
         
                 % Translation to position the **base midpoint** at correct location
                 base_mid = [0, 0]; % in local coords, base is centered at origin
@@ -419,7 +429,7 @@ classdef SCRIPTVERSIONregenEngineTradesViewer < matlab.apps.AppBase
             end
 
             % Outer wall
-            outerWallRadius = R + 2 .* wallt + side;   % channel height = 2*side
+            outerWallRadius = R + 2 .* wall_t + side;   % channel height = 2*side
             plot(app.UIAxesview_of_throat, outerWallRadius*cos(theta), outerWallRadius*sin(theta), 'b', 'LineWidth', 2);
 
             %% Now show perspetive view of engine
@@ -619,7 +629,7 @@ classdef SCRIPTVERSIONregenEngineTradesViewer < matlab.apps.AppBase
             
             % Assume file is in same folder
             load("regenEngineTradesData.mat");
-            app.yaxisDropDown.Items = ["therm_stress (MPa)", "hoop_stress_doghouse (MPa)", "hoop_stress_fins (MPa)", "total_stress_doghouse (MPa)", "total_stress_fins (MPa)", "vol_engine (mm^3)", "Twg (deg C)", "T_coolant_f (deg C)", "P_coolant_min (psi)", "Isp (s)", "thrust (lbf)", "prop_cost_rate ($)", "dt (in)", "de (in)", "cstar (ft/s)", "eta_cstar (%)", "TWR"];
+            app.yaxisDropDown.Items = ["therm_stress (MPa)", "axial_temp_grad (deg C)", "hoop_stress_doghouse (MPa)", "hoop_stress_fins (MPa)", "total_stress_doghouse (MPa)", "total_stress_fins (MPa)", "vol_engine (mm^3)", "Twg (deg C)", "T_coolant_f (deg C)", "P_coolant_min (psi)", "Isp (s)", "thrust (lbf)", "prop_cost_rate ($)", "dt (in)", "de (in)", "cstar (ft/s)", "eta_cstar (%)", "TWR"];
 
             % Still WIP - should probably some day be updated to not be
             %   recalculated every app use
@@ -722,9 +732,9 @@ classdef SCRIPTVERSIONregenEngineTradesViewer < matlab.apps.AppBase
             yaxisDropDownValueChanged(app, event);
         end
 
-        % Value changed function: Sliderwallt
-        function SliderwalltValueChanged(app, event)
-            snapSlider(app, "Sliderwallt");
+        % Value changed function: Sliderwall_t
+        function Sliderwall_tValueChanged(app, event)
+            snapSlider(app, "Sliderwall_t");
             yaxisDropDownValueChanged(app, event);
         end
 
@@ -843,13 +853,13 @@ classdef SCRIPTVERSIONregenEngineTradesViewer < matlab.apps.AppBase
             zlabel(app.UIAxesk_wall, 'Z')
             app.UIAxesk_wall.Position = [1201 185 300 300];
 
-            % Create UIAxeswallt
-            app.UIAxeswallt = uiaxes(app.DataTab);
-            title(app.UIAxeswallt, 'varying wall thickness')
-            xlabel(app.UIAxeswallt, 'X')
-            ylabel(app.UIAxeswallt, 'Y')
-            zlabel(app.UIAxeswallt, 'Z')
-            app.UIAxeswallt.Position = [897 186 300 300];
+            % Create UIAxeswall_t
+            app.UIAxeswall_t = uiaxes(app.DataTab);
+            title(app.UIAxeswall_t, 'varying wall thickness')
+            xlabel(app.UIAxeswall_t, 'X')
+            ylabel(app.UIAxeswall_t, 'Y')
+            zlabel(app.UIAxeswall_t, 'Z')
+            app.UIAxeswall_t.Position = [897 186 300 300];
 
             % Create UIAxesmdot
             app.UIAxesmdot = uiaxes(app.DataTab);
@@ -1018,16 +1028,16 @@ classdef SCRIPTVERSIONregenEngineTradesViewer < matlab.apps.AppBase
             app.Slidermdot.ValueChangedFcn = createCallbackFcn(app, @SlidermdotValueChanged, true);
             app.Slidermdot.Position = [1036 110 150 3];
 
-            % Create wallthicknessmmSliderLabel
-            app.wallthicknessmmSliderLabel = uilabel(app.DataTab);
-            app.wallthicknessmmSliderLabel.HorizontalAlignment = 'right';
-            app.wallthicknessmmSliderLabel.Position = [935 25 79 30];
-            app.wallthicknessmmSliderLabel.Text = {'wall thickness'; '(mm)'};
+            % Create wall_thicknessmmSliderLabel
+            app.wall_thicknessmmSliderLabel = uilabel(app.DataTab);
+            app.wall_thicknessmmSliderLabel.HorizontalAlignment = 'right';
+            app.wall_thicknessmmSliderLabel.Position = [935 25 79 30];
+            app.wall_thicknessmmSliderLabel.Text = {'wall thickness'; '(mm)'};
 
-            % Create Sliderwallt
-            app.Sliderwallt = uislider(app.DataTab);
-            app.Sliderwallt.ValueChangedFcn = createCallbackFcn(app, @SliderwalltValueChanged, true);
-            app.Sliderwallt.Position = [1036 42 150 3];
+            % Create Sliderwall_t
+            app.Sliderwall_t = uislider(app.DataTab);
+            app.Sliderwall_t.ValueChangedFcn = createCallbackFcn(app, @Sliderwall_tValueChanged, true);
+            app.Sliderwall_t.Position = [1036 42 150 3];
 
             % Create k_wallWmKLabel
             app.k_wallWmKLabel = uilabel(app.DataTab);
