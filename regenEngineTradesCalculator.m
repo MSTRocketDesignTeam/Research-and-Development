@@ -93,8 +93,8 @@ list_var_names = ["pc";
                   "k_wall"];
 
 %% Independent Variable Nominal Values
-std_var_range = [1, 1.1];
-high_def_var_range = linspace(.8, 1.2, 3);
+std_var_range = [1];
+high_def_var_range = linspace(.8, 1.2, 3)';
 % stdvarrange = highdefvarrange;
 
 % psi to Pa
@@ -156,13 +156,13 @@ ranges = {pc_range, OF_range, expansion_ratio_range, mdot_range, d_channel_range
 range_lengths = cellfun(@length, ranges);
 
 % Eliminates trailing singleton dimensions in range_lengths
-for i = length(ranges):-1:1
-    if range_lengths(i) == 1
-        range_lengths = range_lengths(1:i-1);
-    else
-        break;
-    end
-end
+% for i = length(ranges):-1:1
+%     if range_lengths(i) == 1
+%         range_lengths = range_lengths(1:i-1);
+%     else
+%         break;
+%     end
+% end
 
 % range_lengths_to_search = range_lengths(4:end);
 % range_lengths_searched_no_singletons = range_lengths_to_search(range_lengths_to_search > 1);
@@ -171,7 +171,14 @@ end
 
 % Resize ranges to be compatibly N-Dimensional, irrespective of sizes of
 %   pc_range, OF_range, or expansion_ratio_range
-[mdot_range, d_channel_range, num_channels_range, T_coolant_i_range, wall_t_range, k_wall_range] = ndgrid(mdot_range, d_channel_range, num_channels_range, T_coolant_i_range, wall_t_range, k_wall_range);
+template = repmat(0, range_lengths)
+mdot_range = reshape(mdot_range, [ones(1, 5), numel(mdot_range)]);
+d_channel_range = reshape(d_channel_range, range_lengths);
+num_channels_range = reshape(num_channels_range, range_lengths);
+T_coolant_i_range = reshape(T_coolant_i_range, range_lengths);
+wall_t_range = reshape(wall_t_range, range_lengths);
+k_wall_range = reshape(k_wall_range, range_lengths);
+% [mdot_range, d_channel_range, num_channels_range, T_coolant_i_range, wall_t_range, k_wall_range] = ndgrid(mdot_range, d_channel_range, num_channels_range, T_coolant_i_range, wall_t_range, k_wall_range);
 
 % Get count of non-singleton dimensions excluding the dimensions of
 %   pc_range, OF_range, or expansion_ratio_range
@@ -245,6 +252,7 @@ B2_i_eth = [1.77166E-2, -8.93088E-2, 6.84664E-2, -1.45702E-2, 8.09189E-4];
 is_delta_lambda = 1:5;
 % Reshape summation arrays for vector size compatibility during
 %   parallelization
+psqueeze = @(A, N) reshape(A, [size(A, N+1), size(A, (N+2):max(N+2, ndims(A)))]);
 fRshpSmmtnArrys = @(arry, num_dims) reshape(arry, [ones(1, num_dims) numel(arry)]);
 B1_i_eth = fRshpSmmtnArrys(B1_i_eth, num_dims_big);
 B2_i_eth = fRshpSmmtnArrys(B2_i_eth, num_dims_big);
