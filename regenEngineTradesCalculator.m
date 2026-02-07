@@ -88,12 +88,12 @@ list_var_names = ["pc";
                   "mdot";
                   "d_channel";
                   "num_channels";
-                  "T_coolant";
+                  "T_coolant_i";
                   "wall_t";
                   "k_wall"];
 
 %% Independent Variable Nominal Values
-std_var_range = [1, 1.2]';
+std_var_range = [1, 1.1]';
 high_def_var_range = linspace(.8, 1.2, 3)';
 % stdvarrange = highdefvarrange;
 
@@ -162,24 +162,40 @@ range_lengths = cellfun(@length, ranges);
 % Check if any range is a scalar - go through each range in ranges
 % Have to make a copy of ranges because the actual ranges is used for
 %   initializing the app
-ranges_copy = ranges;
 % Skip first three; pc, OF, eps
-for i_range = 4:length(ranges_copy)
-    this_range = ranges_copy{i_range};
+starting_i_range = 4;
+for i_range = starting_i_range:length(ranges)
+    this_range_name = append(list_var_names(i_range), "_range");
+    this_range = ranges{i_range};
     if ~isscalar(this_range)
-        this_range = reshape(this_range, range_lengths);
-        ranges_copy{i_range} = this_range;
+        repmat_dimensions = range_lengths;
+        repmat_dimensions(i_range) = 1;
+        if i_range ~= starting_i_range
+            num_dimensions = i_range - starting_i_range;
+            this_range = getReshapedSummationArray(this_range, num_dimensions);
+        else
+            repmat_dimensions(starting_i_range) = 1;
+        end   
 
+        % Get rid of first three dimensions
+        repmat_dimensions = repmat_dimensions(4:end);
+        
+        this_range = repmat(this_range, repmat_dimensions);
+        ranges_copy.(this_range_name) = this_range;
+
+        % For debugging
+        % disp("This range size is");
+        % disp(size(ranges_copy.(this_range_name)));
     end 
 end
 
 % Reassign changed ranges to original so they're now properly resized
-mdot_range = ranges_copy{4};
-d_channel_range = ranges_copy{5};
-num_channels_range = ranges_copy{6};
-T_coolant_i_range = ranges_copy{7};
-wall_t_range = ranges_copy{8};
-k_wall_range = ranges_copy{9};
+mdot_range = ranges_copy.mdot_range;
+d_channel_range = ranges_copy.d_channel_range;
+num_channels_range = ranges_copy.num_channels_range;
+T_coolant_i_range = ranges_copy.T_coolant_i_range;
+wall_t_range = ranges_copy.wall_t_range;
+k_wall_range = ranges_copy.k_wall_range;
 
 % Eliminates trailing singleton dimensions in range_lengths
 for i = length(ranges):-1:1
@@ -453,8 +469,8 @@ for i_pc = 1:length(pc_range)
             mdot_channel = mdot_range .* (1 ./ (1 + OF)) ./ num_channels_range;
             % rackett equation used to calc coolant density
             rho_coolant = fDensity(rho_crit_eth, Zc_eth, T_coolant_i_range, T_crit_eth);
-            k_coolant = fk_eth(rho_coolant, repmat(T_coolant_i_range, range_lengths));
-            mu_coolant = fmu_eth(rho_coolant, repmat(T_coolant_i_range, range_lengths));
+            k_coolant = fk_eth(rho_coolant, T_coolant_i_range);
+            mu_coolant = fmu_eth(rho_coolant, T_coolant_i_range);
             fluid_vel = mdot_channel ./ A_channel_range ./ rho_coolant;
             % -------------------------------------------------------------
 
@@ -471,7 +487,7 @@ for i_pc = 1:length(pc_range)
             NU_coolant = .023 .* Re_coolant.^.8 .* Pr_coolant.^.4;
             hl_laminar_mask = Re_coolant <= 2300;
             hl_turbulent_mask = ~hl_laminar_mask;
-            hl = zeros(range_lengths);
+            hl = zeros(range_lengths(4:end));
             % only valid for laminar
             hl(hl_laminar_mask) = .023 .* cp_eth_avg .* mdot_channel(hl_laminar_mask) ./ A_channel_range(hl_laminar_mask) .* Re_coolant(hl_laminar_mask).^-.2 .* (mu_coolant(hl_laminar_mask) .* cp_eth_avg ./ k_coolant(hl_laminar_mask)).^(-2./3);
             % Dittus Boelter correlation, used with caution from Re = 2300 to Re = 10k, above 10k it's pretty good
@@ -483,7 +499,17 @@ for i_pc = 1:length(pc_range)
             %   larger area than hg coefficient (hot wall area facing
             %   channel per-cross-section is larger inside the channel than
             %   in the chamber)
-            q(i_pc, i_OF, i_eps, :, :, :, :, :, :) = (squeeze(throat_flow_temp(i_pc, i_OF, i_eps, :, :, :, :, :, :)) - T_coolant_i_range) ./ (1 ./ hg + wall_t_range ./ k_wall_range + 1 ./ hl ./ ((dt + wall_t_range) ./ dt));
+            
+            % TR = thermal resistance
+            TR_flow_wall_convection = 1;
+            TR_innerwall_innerwall_conduction = 1;
+            TR_innerwall_coolant_convection = 1;
+            TR_coolant_outerwall_convection = 1;
+            TR_outerwall_outerwall_conduction = 1;
+            TR_outerwall_air_convection = 1;
+            % Not modeling any radiation
+            lumped_TR = (1 ./ hg + wall_t_range ./ k_wall_range + 1 ./ hl ./ ((dt + wall_t_range) ./ dt));
+            q(i_pc, i_OF, i_eps, :, :, :, :, :, :) = (squeeze(throat_flow_temp(i_pc, i_OF, i_eps, :, :, :, :, :, :)) - T_coolant_i_range) ./ lumped_TR;
             Twg(i_pc, i_OF, i_eps, :, :, :, :, :, :) = squeeze(throat_flow_temp(i_pc, i_OF, i_eps, :, :, :, :, :, :)) - squeeze(q(i_pc, i_OF, i_eps, :, :, :, :, :, :)) ./ hg;
             Twl(i_pc, i_OF, i_eps, :, :, :, :, :, :) = T_coolant_i_range + squeeze(q(i_pc, i_OF, i_eps, :, :, :, :, :, :)) ./ hl;
 
