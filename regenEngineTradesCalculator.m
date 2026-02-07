@@ -93,7 +93,7 @@ list_var_names = ["pc";
                   "k_wall"];
 
 %% Independent Variable Nominal Values
-std_var_range = [1];
+std_var_range = [1, 1.2]';
 high_def_var_range = linspace(.8, 1.2, 3)';
 % stdvarrange = highdefvarrange;
 
@@ -155,29 +155,41 @@ ranges = {pc_range, OF_range, expansion_ratio_range, mdot_range, d_channel_range
 % Returns array of each ranges' sizes
 range_lengths = cellfun(@length, ranges);
 
+% Most of the problem with the later reshaping these ranges comes from the
+%   ranges we leave as single values being the wrong dimensions when they
+%   get turned into an N-D array. So we could just leave them as scalars
+
+% Check if any range is a scalar - go through each range in ranges
+% Have to make a copy of ranges because the actual ranges is used for
+%   initializing the app
+ranges_copy = ranges;
+% Skip first three; pc, OF, eps
+for i_range = 4:length(ranges_copy)
+    this_range = ranges_copy{i_range};
+    if ~isscalar(this_range)
+        this_range = reshape(this_range, range_lengths);
+        ranges_copy{i_range} = this_range;
+
+    end 
+end
+
+% Reassign changed ranges to original so they're now properly resized
+mdot_range = ranges_copy{4};
+d_channel_range = ranges_copy{5};
+num_channels_range = ranges_copy{6};
+T_coolant_i_range = ranges_copy{7};
+wall_t_range = ranges_copy{8};
+k_wall_range = ranges_copy{9};
+
 % Eliminates trailing singleton dimensions in range_lengths
-% for i = length(ranges):-1:1
-%     if range_lengths(i) == 1
-%         range_lengths = range_lengths(1:i-1);
-%     else
-%         break;
-%     end
-% end
+for i = length(ranges):-1:1
+    if range_lengths(i) == 1
+        range_lengths = range_lengths(1:i-1);
+    else
+        break;
+    end
+end
 
-% range_lengths_to_search = range_lengths(4:end);
-% range_lengths_searched_no_singletons = range_lengths_to_search(range_lengths_to_search > 1);
-% range_lengths_no_singletons = [range_lengths(1:3), range_lengths_searched_no_singletons];
-% range_lengths = range_lengths_no_singletons;
-
-% Resize ranges to be compatibly N-Dimensional, irrespective of sizes of
-%   pc_range, OF_range, or expansion_ratio_range
-template = repmat(0, range_lengths)
-mdot_range = reshape(mdot_range, [ones(1, 5), numel(mdot_range)]);
-d_channel_range = reshape(d_channel_range, range_lengths);
-num_channels_range = reshape(num_channels_range, range_lengths);
-T_coolant_i_range = reshape(T_coolant_i_range, range_lengths);
-wall_t_range = reshape(wall_t_range, range_lengths);
-k_wall_range = reshape(k_wall_range, range_lengths);
 % [mdot_range, d_channel_range, num_channels_range, T_coolant_i_range, wall_t_range, k_wall_range] = ndgrid(mdot_range, d_channel_range, num_channels_range, T_coolant_i_range, wall_t_range, k_wall_range);
 
 % Get count of non-singleton dimensions excluding the dimensions of
@@ -206,7 +218,7 @@ num_dims_small = ndims(mdot_range);
 num_dims_big = 0;
 for i = 1:3
     this_range = ranges{1};
-    if length(this_range) ~= 1
+    if ~isscalar(this_range)
         num_dims_big = num_dims_big + 1;
     end
 end
@@ -250,13 +262,12 @@ flambda0eth = @(T) (-2.09575 + 19.9045 .* fT_r(T, T_crit_eth) - 53.964 .* fT_r(T
 B1_i_eth = [2.67222E-2, 1.48279E-1, -1.30429E-1, 3.46232E-2, -2.44293E-3];
 B2_i_eth = [1.77166E-2, -8.93088E-2, 6.84664E-2, -1.45702E-2, 8.09189E-4];
 is_delta_lambda = 1:5;
-% Reshape summation arrays for vector size compatibility during
-%   parallelization
+
 psqueeze = @(A, N) reshape(A, [size(A, N+1), size(A, (N+2):max(N+2, ndims(A)))]);
-fRshpSmmtnArrys = @(arry, num_dims) reshape(arry, [ones(1, num_dims) numel(arry)]);
-B1_i_eth = fRshpSmmtnArrys(B1_i_eth, num_dims_big);
-B2_i_eth = fRshpSmmtnArrys(B2_i_eth, num_dims_big);
-is_delta_lambda = fRshpSmmtnArrys(is_delta_lambda, num_dims_big);
+
+B1_i_eth = getReshapedSummationArray(B1_i_eth, num_dims_big);
+B2_i_eth = getReshapedSummationArray(B2_i_eth, num_dims_big);
+is_delta_lambda = getReshapedSummationArray(is_delta_lambda, num_dims_big);
 frho_r = @(rho, rho_crit) rho ./ rho_crit;
 fdeltalambda_eth = @(rho, T) sum((B1_i_eth + B2_i_eth .* fT_r(T, T_crit_eth)) .* (frho_r(rho, rho_crit_eth)).^is_delta_lambda, num_dims_big + 1);
 fdeltalambdac_eth = @(rho, T) 1.7E-3 ./ (7E-2 + abs(fT_r(T, T_crit_eth) - 1)) .* exp(-(1.7 .* (frho_r(rho, rho_crit_eth) - 1)).^2);
@@ -273,19 +284,19 @@ bi_eth = [.422373, -3.78868, 23.8708, -7.89204, 2.09783, -.247702];
 ci_eth = [-.0281703, 1];
 is_eta0b = 0:5;
 is_eta0c = 0:1;
-bi_eth = fRshpSmmtnArrys(bi_eth, num_dims_big);
-ci_eth = fRshpSmmtnArrys(ci_eth, num_dims_big);
-is_eta0b = fRshpSmmtnArrys(is_eta0b, num_dims_big);
-is_eta0c = fRshpSmmtnArrys(is_eta0c, num_dims_big);
+bi_eth = getReshapedSummationArray(bi_eth, num_dims_big);
+ci_eth = getReshapedSummationArray(ci_eth, num_dims_big);
+is_eta0b = getReshapedSummationArray(is_eta0b, num_dims_big);
+is_eta0c = getReshapedSummationArray(is_eta0c, num_dims_big);
 feta0_eth = @(T) sum(bi_eth .* fT_r(T, T_crit_eth).^is_eta0b, num_dims_big + 1) ./ sum(ci_eth .* fT_r(T, T_crit_eth).^is_eta0c, num_dims_big + 1);
 epsilon_k_B_eth = 265;
 fTstar = @(T, epsilon_k_B) T ./ epsilon_k_B;
 di = [-1.9572881E1, 2.1973999E2, -1.0153226E3, 2.4710125E3, -3.3751717E3, 2.4916597E3, -7.8726086E2];
-di = fRshpSmmtnArrys(di, num_dims_big);
+di = getReshapedSummationArray(di, num_dims_big);
 d7 = 1.4085455E1;
 d8 = -3.4664158E-1;
 is_Bstar_eta = 0:6;
-is_Bstar_eta = fRshpSmmtnArrys(is_Bstar_eta, num_dims_big);
+is_Bstar_eta = getReshapedSummationArray(is_Bstar_eta, num_dims_big);
 Bstar_eta_eth = @(Tstar) sum(di .* Tstar.^(-.25 .* is_Bstar_eta), num_dims_big + 1) + d7 .* Tstar.^-2.5 + d8 .* Tstar.^-5.5;
 NA = 6.02214076E23;
 % nm to m
@@ -293,12 +304,12 @@ sigma_eth = .479E-9;
 fB_eta_eth = @(T) Bstar_eta_eth(fTstar(T, epsilon_k_B_eth)) .* NA .* sigma_eth.^3 ./ mlr_wgt_eth;
 feta1_eth = @(T) feta0_eth(T) .* fB_eta_eth(T);
 fdeltaeta_eth = @(rho, T) frho_r(rho, rho_crit_eth).^(2./3) .* fT_r(T, T_crit_eth).^.5 .* (8.32575272 .* frho_r(rho, rho_crit_eth) + 9.66535242E-2 .* (frho_r(rho, rho_crit_eth).^8 ./ (fT_r(T, T_crit_eth).^4 .* (1 + frho_r(rho, rho_crit_eth).^2) - fT_r(T, T_crit_eth).^2)));
-fmu_eth = @(T, rho) (feta0_eth(T) + feta1_eth(T) .* rho + fdeltaeta_eth(rho, T)) .* 10.^-6; % inputs: T in K, rho in kg/m^3; output in Pa-s
+fmu_eth = @(rho, T) (feta0_eth(T) + feta1_eth(T) .* rho + fdeltaeta_eth(rho, T)) .* 10.^-6; % inputs: T in K, rho in kg/m^3; output in Pa-s
 % mu_coolant sanity check
 T_exp_1 = 300;
 rho_exp_1 = 10;
 mu_exp_1_act = 8.9382E-6;
-mu_exp_1_calc = fmu_eth(T_exp_1, rho_exp_1);
+mu_exp_1_calc = fmu_eth(rho_exp_1, T_exp_1);
 
 % Results of interest, things to graph in the app
 therm_stress = zeros(range_lengths);
@@ -442,8 +453,8 @@ for i_pc = 1:length(pc_range)
             mdot_channel = mdot_range .* (1 ./ (1 + OF)) ./ num_channels_range;
             % rackett equation used to calc coolant density
             rho_coolant = fDensity(rho_crit_eth, Zc_eth, T_coolant_i_range, T_crit_eth);
-            k_coolant = fk_eth(rho_coolant, T_coolant_i_range);
-            mu_coolant = fmu_eth(T_coolant_i_range, rho_coolant);
+            k_coolant = fk_eth(rho_coolant, repmat(T_coolant_i_range, range_lengths));
+            mu_coolant = fmu_eth(rho_coolant, repmat(T_coolant_i_range, range_lengths));
             fluid_vel = mdot_channel ./ A_channel_range ./ rho_coolant;
             % -------------------------------------------------------------
 
@@ -460,29 +471,12 @@ for i_pc = 1:length(pc_range)
             NU_coolant = .023 .* Re_coolant.^.8 .* Pr_coolant.^.4;
             hl_laminar_mask = Re_coolant <= 2300;
             hl_turbulent_mask = ~hl_laminar_mask;
-            hl = zeros(size(mdot_channel));
+            hl = zeros(range_lengths);
             % only valid for laminar
             hl(hl_laminar_mask) = .023 .* cp_eth_avg .* mdot_channel(hl_laminar_mask) ./ A_channel_range(hl_laminar_mask) .* Re_coolant(hl_laminar_mask).^-.2 .* (mu_coolant(hl_laminar_mask) .* cp_eth_avg ./ k_coolant(hl_laminar_mask)).^(-2./3);
             % Dittus Boelter correlation, used with caution from Re = 2300 to Re = 10k, above 10k it's pretty good
             hl(hl_turbulent_mask) = NU_coolant(hl_turbulent_mask) .* k_coolant(hl_turbulent_mask) ./ dH_channels(hl_turbulent_mask);
             hg = .023 .* (throat_flow_density .* squeeze(flow_vel(i_pc, i_OF, i_eps, :, :, :, :, :, :))).^.8 ./ dt.^.2 .* Pr_flow.^.4 .* k_flow ./ mu_flow.^.8;
-
-            % Recommended by Claude after I asked about needing Re, Pr,
-            % Nusselt, and Biot numbers, and fric coeff for Brennen Kohlman
-            % (for ANSYS) - PENDING REVIEW
-            % Re_gas = throat_flow_density .* flow_vel .* dH_channels ./ mu_flow;
-            % Re_coolant = dH_channels .* fluid_vel .* rho_coolant ./ mu_coolant;
-            % % Coolant Prandtl (you have gas Pr from CEA)
-            % Pr_coolant = mu_coolant .* cp_coolant_avg ./ k_coolant;
-            % % Nusselt numbers (dimensionless heat transfer coefficient)
-            % Nu_gas = hg .* dH_channels ./ k_flow;
-            % Nu_coolant = hl .* dH_channels ./ k_coolant;
-            % % Biot numbers (ratio of internal thermal resistance to surface resistance)
-            % Bi_gas = hg .* wallts ./ k_wall_range;
-            % Bi_coolant = hl .* wallts ./ k_coolant;
-            % % Friction factors (Blasius for turbulent smooth pipes)
-            % f_gas = 0.079 ./ Re_gas.^0.25;
-            % f_coolant = 0.079 ./ Re_coolant.^0.25;
 
             % Get radial heat transfer through wall and hot wall temps
             % Accounts for hl coefficient being for heat transfer over
@@ -528,7 +522,7 @@ for i_pc = 1:length(pc_range)
             
             % Basically makes a linspace from 0 to L_nozzle_circular's
             %   value at every index in L_nozzle_circular
-            z_nozzle_circular = fRshpSmmtnArrys(linspace(0, 1, numelsnoz), num_dims_small);
+            z_nozzle_circular = getReshapedSummationArray(linspace(0, 1, numelsnoz), num_dims_small);
             z_nozzle_circular = z_nozzle_circular .* L_nozzle_circular;
 
             rc = Rt + squeeze(R1(i_pc, i_OF, i_eps, :, :, :, :, :, :));
@@ -566,7 +560,7 @@ for i_pc = 1:length(pc_range)
     
                 L_chamber_circular_widen = squeeze(R1p(i_pc, i_OF, i_eps, :, :, :, :, :, :)) .* sin(squeeze(alpha(i_pc, i_OF, i_eps, :, :, :, :, :, :)));
     
-                z_chamber_circular_widen = fRshpSmmtnArrys(linspace(0, 1, numelsnoz), num_dims_small);
+                z_chamber_circular_widen = getReshapedSummationArray(linspace(0, 1, numelsnoz), num_dims_small);
                 z_chamber_circular_widen = z_chamber_circular_widen .* L_chamber_circular_widen;
     
                 rc = Rt + squeeze(R1p(i_pc, i_OF, i_eps, :, :, :, :, :, :));
@@ -587,7 +581,7 @@ for i_pc = 1:length(pc_range)
                 Re(i_pc, i_OF, i_eps, :, :, :, :, :, :) = expansion_ratio.^.5 .* Rt; 
                 L_nozzle_parabolic(i_pc, i_OF, i_eps, :, :, :, :, :, :) = L_nozzle - L_nozzle_circular;
     
-                z_nozzle_parabolic = fRshpSmmtnArrys(linspace(0, 1, numelsnoz), num_dims_small);
+                z_nozzle_parabolic = getReshapedSummationArray(linspace(0, 1, numelsnoz), num_dims_small);
                 z_nozzle_parabolic = z_nozzle_parabolic .* squeeze(L_nozzle_parabolic(i_pc, i_OF, i_eps, :, :, :, :, :, :));
     
                 % Nonlinear three variable system - solved by hand
@@ -627,7 +621,7 @@ for i_pc = 1:length(pc_range)
             end
             L_chamber_circular_narrow(i_pc, i_OF, i_eps, :, :, :, :, :, :) = z1;
 
-            z_chamber_circular_narrow = fRshpSmmtnArrys(linspace(0, 1, numelsnoz), num_dims_small);
+            z_chamber_circular_narrow = getReshapedSummationArray(linspace(0, 1, numelsnoz), num_dims_small);
             z_chamber_circular_narrow = z_chamber_circular_narrow .* squeeze(L_chamber_circular_narrow(i_pc, i_OF, i_eps, :, :, :, :, :, :));
 
             r_chamber_circular_narrow = a .* z_chamber_circular_narrow.^2 + b .* z_chamber_circular_narrow;
@@ -657,10 +651,10 @@ for i_pc = 1:length(pc_range)
             L_chamber_linear(i_pc, i_OF, i_eps, :, :, :, :, :, :) = Vcl ./ (pi .* squeeze(Rc(i_pc, i_OF, i_eps, :, :, :, :, :, :)).^2);
 
             % r_chamber_linear = Rc .* ones(1, 50);
-            r_chamber_linear = fRshpSmmtnArrys(ones(1, numelsnoz), num_dims_small);
+            r_chamber_linear = getReshapedSummationArray(ones(1, numelsnoz), num_dims_small);
             r_chamber_linear = r_chamber_linear .* squeeze(Rc(i_pc, i_OF, i_eps, :, :, :, :, :, :));
 
-            z_chamber_linear = fRshpSmmtnArrys(linspace(0, 1, numelsnoz), num_dims_small);
+            z_chamber_linear = getReshapedSummationArray(linspace(0, 1, numelsnoz), num_dims_small);
             z_chamber_linear = z_chamber_linear .* squeeze(L_chamber_linear(i_pc, i_OF, i_eps, :, :, :, :, :, :));
 
             % Shift z
@@ -910,6 +904,12 @@ function yieldStress = getYieldStress(temp)
                 65;
                 65];
     yieldStress = interp1(temps, stresses, temp);
+end
+
+% Reshape summation arrays for vector size compatibility during
+%   parallelization
+function reshaped_summation_array = getReshapedSummationArray(summation_array, num_dimensions)
+    reshaped_summation_array = reshape(summation_array, [ones(1, num_dimensions) numel(summation_array)]);
 end
 
 % For making the code able to be run as both a scalar calculator AND a
