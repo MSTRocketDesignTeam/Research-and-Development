@@ -72,7 +72,7 @@ numelsnoz = 10;
 numsectionsnoz = 5;
 
 %% Independent, Variable Parameters
-% pc                        chamber pressure
+% pc_c                        chamber pressure
 % OF                        O to F ratio
 % expansion_ratio           
 % mdot                      mass flow rate
@@ -82,7 +82,7 @@ numsectionsnoz = 5;
 % wall_t                    hot-wall thickness
 % k_wall                    wall material thermal conductivity
 
-list_var_names = ["pc";
+list_var_names = ["pc_c";
                   "OF";
                   "expansion_ratio";
                   "mdot";
@@ -155,14 +155,14 @@ ranges = {pc_range, OF_range, expansion_ratio_range, mdot_range, d_channel_range
 % Returns array of each ranges' sizes
 range_lengths = cellfun(@length, ranges);
 
+% Basically a custom version of the ndgrid function
 % Most of the problem with the later reshaping these ranges comes from the
 %   ranges we leave as single values being the wrong dimensions when they
 %   get turned into an N-D array. So we could just leave them as scalars
-
 % Check if any range is a scalar - go through each range in ranges
 % Have to make a copy of ranges because the actual ranges is used for
 %   initializing the app
-% Skip first three; pc, OF, eps
+% Skip first three; pc_c, OF, eps
 starting_i_range = 4;
 for i_range = starting_i_range:length(ranges)
     this_range_name = append(list_var_names(i_range), "_range");
@@ -206,21 +206,9 @@ for i = length(ranges):-1:1
     end
 end
 
-% [mdot_range, d_channel_range, num_channels_range, T_coolant_i_range, wall_t_range, k_wall_range] = ndgrid(mdot_range, d_channel_range, num_channels_range, T_coolant_i_range, wall_t_range, k_wall_range);
-
 % Get count of non-singleton dimensions excluding the dimensions of
 %   pc_range, OF_range, or expansion_ratio_range
 num_dims_small = ndims(mdot_range);
-
-% % Check if they are row vectors- they should be column vectors
-% if size(mdot_range, 1) == 1
-%     mdot_range = mdot_range';
-%     d_channel_range = d_channel_range';
-%     num_channels_range = num_channels_range';
-%     T_coolant_i_range = T_coolant_i_range';
-%     wall_t_range = wall_t_range';
-%     k_wall_range = k_wall_range';
-% end
 
 % Get count of non-singleton dimensions among these ranges:
 %   pc_range,
@@ -365,7 +353,7 @@ hoop_stress_fins = zeros(range_lengths);
 
 %% Begin calcs
 % Workflow - hybrid iterative vectorized method
-    % Vary pc
+    % Vary pc_c
     %   Vary OF
     %       Vary over expansion_ratio
     %           Get cstar_theo (do CEA)
@@ -397,9 +385,9 @@ runtime = tic;
 % py.rocketcea.cea_obj.CEA_Obj(fuelName, oxName) - see input_cards.py
 % CEA_Obj class functions: (Pc, MR, eps); Pc in psi, MR is OF, eps is expansion_ratio
 cea_out = py.rocketcea.cea_obj.CEA_Obj(fuelName = fuel_name, oxName = ox_name, fac_CR = CR);
-%% Vary pc
+%% Vary pc_c
 for i_pc = 1:length(pc_range)
-    pc = pc_range(i_pc);
+    pc_c = pc_range(i_pc);
 
     %% Vary OF
     for i_OF = 1:length(OF_range)
@@ -415,44 +403,47 @@ for i_pc = 1:length(pc_range)
             % (for outputs)
             % Get specific heat ratio and flow molar weight at throat - for
             % later use in thrust coeff and sonic throat flow velocity calc
-            throat_flow_props = double(cea_out.get_Throat_MolWt_gamma(Pc = pc * 0.000145038, MR = OF, eps = expansion_ratio));
+            throat_flow_props = double(cea_out.get_Throat_MolWt_gamma(Pc = pc_c * 0.000145038, MR = OF, eps = expansion_ratio));
             throat_flow_mlr_wgt = throat_flow_props(1) .* 10.^-3; % lbm/lbm-mol -> kg/mol
             throat_flow_gamma = throat_flow_props(2);
-            exit_flow_props = double(cea_out.get_exit_MolWt_gamma(Pc = pc * 0.000145038, MR = OF, eps = expansion_ratio));
+            exit_flow_props = double(cea_out.get_exit_MolWt_gamma(Pc = pc_c * 0.000145038, MR = OF, eps = expansion_ratio));
             exit_flow_gamma = exit_flow_props(2);
             % Needed for thrust calcs later
-            pex = pc ./ cea_out.get_PcOvPe(Pc = pc * 0.000145038, MR = OF, eps = expansion_ratio);
-            Cf = sqrt(2 .* exit_flow_gamma.^2 ./ (exit_flow_gamma - 1) .* (2 ./ (exit_flow_gamma + 1)).^((exit_flow_gamma + 1) ./ (exit_flow_gamma - 1)).*(1 - (pex ./ pc).^((exit_flow_gamma - 1) ./ exit_flow_gamma))) + expansion_ratio .* ((pex - pa) ./ pc);
+            pex = pc_c ./ cea_out.get_PcOvPe(Pc = pc_c * 0.000145038, MR = OF, eps = expansion_ratio);
+            Cf = sqrt(2 .* exit_flow_gamma.^2 ./ (exit_flow_gamma - 1) .* (2 ./ (exit_flow_gamma + 1)).^((exit_flow_gamma + 1) ./ (exit_flow_gamma - 1)).*(1 - (pex ./ pc_c).^((exit_flow_gamma - 1) ./ exit_flow_gamma))) + expansion_ratio .* ((pex - pa) ./ pc_c);
             % Thought theoretical Isp might be interesting to compare to
             % predicted-actual, not really used atm though (ca 11/04/2025)
-            Isp_theo = cea_out.get_Isp(Pc = pc * 0.000145038, MR = OF, eps = expansion_ratio);
+            Isp_theo = cea_out.get_Isp(Pc = pc_c * 0.000145038, MR = OF, eps = expansion_ratio);
             % Gets throat temp needed for several calculations later
             % deg R to K
-            CEA_temps = double(cea_out.get_Temperatures(Pc = pc * 0.000145038, MR = OF, eps = expansion_ratio)) .* 5 ./ 9;
+            CEA_temps = double(cea_out.get_Temperatures(Pc = pc_c * 0.000145038, MR = OF, eps = expansion_ratio)) .* 5 ./ 9;
             throat_flow_temp(i_pc, i_OF, i_eps, :, :, :, :, :, :) = CEA_temps(2);
             chamber_flow_temp = CEA_temps(1);
             exit_flow_temp = CEA_temps(3);
             % Fix units from CEA output lbm/ft^3 -> kg/m^3
-            CEA_densities = double(cea_out.get_Densities(Pc = pc * 0.000145038, MR = OF, eps = expansion_ratio)) .* 16.018463;
+            CEA_densities = double(cea_out.get_Densities(Pc = pc_c * 0.000145038, MR = OF, eps = expansion_ratio)) .* 16.018463;
             throat_flow_density = CEA_densities(2);
             % Gets things needed for gas film coeff calc later
-            throat_trans = double(cea_out.get_Throat_Transport(Pc = pc * 0.000145038, MR = OF, eps = expansion_ratio));
+            throat_trans = double(cea_out.get_Throat_Transport(Pc = pc_c * 0.000145038, MR = OF, eps = expansion_ratio));
             % milipoise to Pa-s
-            mu_flow = throat_trans(2) .* 10.^-4;
+            cp_flow_t = throat_trans(1);
+            % Convert from But/lbm-degR to SI units, J/kg-K
+            cp_flow_t = cp_flow_t .* 1055.06 ./ (.453592 ./ 1.8);
+            mu_flow_t = throat_trans(2) .* 10.^-4;
             % millicalories / (cm-K-sec) to W/m-K
             k_flow = throat_trans(3) .* .4184;
-            Pr_flow = throat_trans(4);
+            Pr_flow_t = throat_trans(4);
             % ft/s -> m/s
-            cstar_theo(i_pc, i_OF, i_eps, :, :, :, :, :, :) = cea_out.get_Cstar(Pc = pc * 0.000145038, MR = OF) .* .3048;
+            cstar_theo(i_pc, i_OF, i_eps, :, :, :, :, :, :) = cea_out.get_Cstar(Pc = pc_c * 0.000145038, MR = OF) .* .3048;
 
             % Get some KPPs and other sizing info for trade alternatives
             flow_sonic(i_pc, i_OF, i_eps, :, :, :, :, :, :) = sqrt(throat_flow_gamma * R_universal / throat_flow_mlr_wgt * squeeze(throat_flow_temp(i_pc, i_OF, i_eps, :, :, :, :, :, :)));
             % Check sonic flow velocity
-            CEA_velocity_sonic_flow = cea_out.get_Chamber_SonicVel(Pc = pc * 0.000145038, MR = OF, eps = expansion_ratio);
+            CEA_velocity_sonic_flow = cea_out.get_Chamber_SonicVel(Pc = pc_c * 0.000145038, MR = OF, eps = expansion_ratio);
             At(i_pc, i_OF, i_eps, :, :, :, :, :, :) = mdot_range ./ squeeze(flow_sonic(i_pc, i_OF, i_eps, :, :, :, :, :, :)) ./ throat_flow_density;
             Vc(i_pc, i_OF, i_eps, :, :, :, :, :, :) = squeeze(At(i_pc, i_OF, i_eps, :, :, :, :, :, :)) .* Lstar;
             Ae(i_pc, i_OF, i_eps, :, :, :, :, :, :) = squeeze(At(i_pc, i_OF, i_eps, :, :, :, :, :, :)) .* expansion_ratio;
-            thrust(i_pc, i_OF, i_eps, :, :, :, :, :, :) = Cf .* squeeze(At(i_pc, i_OF, i_eps, :, :, :, :, :, :)) .* pc;
+            thrust(i_pc, i_OF, i_eps, :, :, :, :, :, :) = Cf .* squeeze(At(i_pc, i_OF, i_eps, :, :, :, :, :, :)) .* pc_c;
             prop_cost_rate(i_pc, i_OF, i_eps, :, :, :, :, :, :) = mdot_range .* (cost_nit .* (1 ./ (1 + OF) .* OF) + cost_eth .* (1 ./ (1 + OF)));
             Isp(i_pc, i_OF, i_eps, :, :, :, :, :, :) = squeeze(thrust(i_pc, i_OF, i_eps, :, :, :, :, :, :)) ./ mdot_range ./ g0;
             cstar(i_pc, i_OF, i_eps, :, :, :, :, :, :) = squeeze(Isp(i_pc, i_OF, i_eps, :, :, :, :, :, :)) .* g0 ./ Cf;
@@ -480,19 +471,32 @@ for i_pc = 1:length(pc_range)
             % equation
             % hydraulic diam is 4 * area / perimeter
             dt = sqrt(squeeze(At(i_pc, i_OF, i_eps, :, :, :, :, :, :)) .* 4 ./ pi);
-            Ret = throat_flow_density .* squeeze(flow_vel(i_pc, i_OF, i_eps, :, :, :, :, :, :)) .* dt ./ mu_flow;
+            ReD_flow = throat_flow_density .* squeeze(flow_vel(i_pc, i_OF, i_eps, :, :, :, :, :, :)) .* dt ./ mu_flow_t;
+            % Check if ReD_flow is laminar or turbulent
+            ReD_critical = 2300;
+            ReD_flow_laminar_mask = ReD_flow <= ReD_critical;
+            ReD_flow_turbulent_mask = ~ReD_flow_laminar_mask;
+
             Re_coolant = dH_channels .* fluid_vel .* rho_coolant ./ mu_coolant;
             Pr_coolant = cp_eth_avg .* mu_coolant ./ k_coolant;
             % Exponent on Pr_coolant is .4 bc fluid is being heated - https://www.sciencedirect.com/topics/engineering/dittus-boelter-correlation?
             NU_coolant = .023 .* Re_coolant.^.8 .* Pr_coolant.^.4;
-            hl_laminar_mask = Re_coolant <= 2300;
+            hl_laminar_mask = Re_coolant <= ReD_critical;
             hl_turbulent_mask = ~hl_laminar_mask;
             hl = zeros(range_lengths(4:end));
             % only valid for laminar
             hl(hl_laminar_mask) = .023 .* cp_eth_avg .* mdot_channel(hl_laminar_mask) ./ A_channel_range(hl_laminar_mask) .* Re_coolant(hl_laminar_mask).^-.2 .* (mu_coolant(hl_laminar_mask) .* cp_eth_avg ./ k_coolant(hl_laminar_mask)).^(-2./3);
             % Dittus Boelter correlation, used with caution from Re = 2300 to Re = 10k, above 10k it's pretty good
             hl(hl_turbulent_mask) = NU_coolant(hl_turbulent_mask) .* k_coolant(hl_turbulent_mask) ./ dH_channels(hl_turbulent_mask);
-            hg = .023 .* (throat_flow_density .* squeeze(flow_vel(i_pc, i_OF, i_eps, :, :, :, :, :, :))).^.8 ./ dt.^.2 .* Pr_flow.^.4 .* k_flow ./ mu_flow.^.8;
+            % hg = .023 .* (throat_flow_density .* squeeze(flow_vel(i_pc, i_OF, i_eps, :, :, :, :, :, :))).^.8 ./ dt.^.2 .* Pr_flow.^.4 .* k_flow ./ mu_flow.^.8;
+            
+            pc_pe_c = get_PcOvPe(Pc = pc_c * 0.000145038, MR = OF, eps = expansion_ratio);
+            pe = pc_c ./ pc_pe_c;
+            % Convert to SI
+            pe = pe ./ 0.000145038;
+            pc_pe_t = cea_out.get_Throat_PcOvPe(Pc = pc_c * 0.000145038, MR = OF);
+            pc_t = pc_pe_t .* pe;
+            
 
             % Get radial heat transfer through wall and hot wall temps
             % Accounts for hl coefficient being for heat transfer over
@@ -500,7 +504,18 @@ for i_pc = 1:length(pc_range)
             %   channel per-cross-section is larger inside the channel than
             %   in the chamber)
             
+            % h is convective heat transfer coefficient
+            % k is conductive heat transfer coefficient
             % TR = thermal resistance
+            
+            fGetBartzhg
+            h_flow_wall_convection = 
+            k_innerwall_innerwall_conduction = k_wall_range;
+            h_innerwall_coolant_convection = 1;
+            h_coolant_outerwall_convection = 1;
+            k_outerwall_outerwall_conduction = 1;
+            h_outerwall_air_convection;
+
             TR_flow_wall_convection = 1;
             TR_innerwall_innerwall_conduction = 1;
             TR_innerwall_coolant_convection = 1;
@@ -569,12 +584,12 @@ for i_pc = 1:length(pc_range)
             % Equa: hoop_stress_doghouse = pd/2t
             % This hoop stress calc is calculating the "doghouse effect"
             %   stress
-            hoop_stress_doghouse(i_pc, i_OF, i_eps, :, :, :, :, :, :) = pc .* 2 .* squeeze(Rc(i_pc, i_OF, i_eps, :, :, :, :, :, :)) ./ 2 ./ wall_t_range;
+            hoop_stress_doghouse(i_pc, i_OF, i_eps, :, :, :, :, :, :) = pc_c .* 2 .* squeeze(Rc(i_pc, i_OF, i_eps, :, :, :, :, :, :)) ./ 2 ./ wall_t_range;
             % This hoop stress calc is calculating the stress on the fins
             %   between the channels, starting from one hot-wall-thickness
             %   into the hot-wall and ending where the fin contacts the
             %   outer jacket wall
-            hoop_stress_fins(i_pc, i_OF, i_eps, :, :, :, :, :, :) = pc .* 2 .* (squeeze(Rc(i_pc, i_OF, i_eps, :, :, :, :, :, :)) + wall_t_range) ./ 2 ./ d_channel_range;
+            hoop_stress_fins(i_pc, i_OF, i_eps, :, :, :, :, :, :) = pc_c .* 2 .* (squeeze(Rc(i_pc, i_OF, i_eps, :, :, :, :, :, :)) + wall_t_range) ./ 2 ./ d_channel_range;
             % Arbitrary chamber converging section geometry choice. Made it
             % a circle for simplicity
             % Try deriving alpha from scale of how far in between throat
@@ -710,8 +725,8 @@ for i_pc = 1:length(pc_range)
             %   it a scalar to save time and complexity
             area_ratios = squeeze(area_ratios(1, 1, 1, 1, 1, 1, :))';
 
-            chamber_flow_mach = cea_out.get_Chamber_MachNumber(Pc = pc * 0.000145038, MR = OF, fac_CR = CR);
-            chamber_flow_props = double(cea_out.get_Chamber_MolWt_gamma(Pc = pc * 0.000145038, MR = OF, eps = expansion_ratio));
+            chamber_flow_mach = cea_out.get_Chamber_MachNumber(Pc = pc_c * 0.000145038, MR = OF, fac_CR = CR);
+            chamber_flow_props = double(cea_out.get_Chamber_MolWt_gamma(Pc = pc_c * 0.000145038, MR = OF, eps = expansion_ratio));
             chamber_flow_gamma = chamber_flow_props(2);
 
             % Rearranged stagnation temp equation with knowns at chamber
@@ -861,6 +876,23 @@ save(filename_datastorage, "axial_temp_grad", "T_AlSi10Mg_melt", "T_w_max", "yie
 
 
 %% More complex functions
+% Bartz Correlation from Huzel and Huang
+% D_t: throat diameter, in
+% mu: viscosity, lbm/ft-sec
+% C_p: gas specifict heat capacity at constant pressure, Btu/lbm-degF
+% Pr: Prandtl number
+% p_c_ns: chamber pressure at this nozzle station, lbf/in^2
+% g: gravitational acceleration, ft/s^2
+% cstar: characteristic velocity, ft/s
+% R: curvature of circular portion of the nozzle, in
+% At: throat area
+% A: area at this nozzle stations
+% sigma: "Correction factor for property variations across boundary layer"
+function Bartz_hg = fGetBartzhg()
+    (.026 ./ dt.^.2 * (mu_flow_t.^.2 .* cp_flow_t ./ Pr_flow_t.^.6) .* (pc_t .* g ./ squeeze(cstar(i_pc, i_OF, i_eps, :, :, :, :, :, :))).^.8 .* (dt ./ squeeze(R1(i_pc, i_OF, i_eps, :, :, :, :, :, :))))
+
+end
+
 % For vaporization pressure calclulation to check coolant doesn't boil in
 % coolant channels
 % antoine equation (T in K) - source: NIST, pvapeth in Pa
